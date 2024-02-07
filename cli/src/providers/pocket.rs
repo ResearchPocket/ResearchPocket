@@ -1,12 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use url::Url;
 
 use crate::util::{
     bool_from_int_string, from_str, option_string_date_unix_timestamp_format,
-    optional_vec_from_map, string_date_unix_timestamp_format, try_url_from_string,
-    vec_from_map,
+    optional_vec_from_map, string_date_unix_timestamp_format,
+    try_url_from_string, vec_from_map,
 };
 
 #[derive(Serialize)]
@@ -121,10 +120,10 @@ enum PocketGetDetail {
 }
 
 #[derive(Serialize, Default)]
+#[serde(rename_all = "camelCase")]
 struct PocketGetParams {
     state: Option<PocketGetState>,
     sort: Option<PocketGetSort>,
-    #[serde(rename = "detailType")]
     detail_type: Option<PocketGetDetail>,
 }
 
@@ -218,9 +217,10 @@ pub async fn get(
         .send()
         .await?;
 
-    // let resp_json: PocketGetResponse = req.json().await?;
-    let resp_map = req.json::<serde_json::Map<String, Value>>().await?;
-    println!("{:#?}", resp_map);
+    let resp_json: PocketGetResponse = req.json().await?;
+    // let resp_map = req.json::<serde_json::Map<String, Value>>().await?;
+    // println!("{:#?}", resp_map);
+    println!("{:#?}", resp_json);
 
     Ok(())
 }

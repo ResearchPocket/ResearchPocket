@@ -1,5 +1,5 @@
 use clap::{arg, command, Command};
-use providers::pocket::{get, login};
+use providers::pocket;
 
 mod providers;
 mod util;
@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .about("does login things")
                 .arg(arg!([token])),
         )
-        .subcommand(Command::new("get").about("Gets all pocket data"))
+        .subcommand(Command::new("fetch").about("Gets all pocket data"))
         .get_matches();
 
     if let Some(matches) = matches.subcommand_matches("login") {
@@ -26,14 +26,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         println!("token: {consumer_key:?}");
         let client = reqwest::Client::new();
-        login(&client, &consumer_key).await?;
+        pocket::login(&client, &consumer_key).await?;
     }
 
-    if let Some(_) = matches.subcommand_matches("get") {
+    if let Some(_) = matches.subcommand_matches("fetch") {
         let consumer_key = std::env::var("POCKET_CONSUMER_KEY").expect("Required consumer key");
         let access_token = std::env::var("POCKET_ACCESS_TOKEN").expect("required access token");
         let client = reqwest::Client::new();
-        get(&access_token, &consumer_key, &client).await?;
+        pocket::get(&access_token, &consumer_key, &client).await?;
     }
 
     Ok(())
