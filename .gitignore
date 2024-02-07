@@ -12,3 +12,9 @@ Cargo.lock
 
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
+
+test.jsonc
+.vscode/settings.json
+cli/research.sqlite
+cli/research.sqlite-wal
+cli/research.sqlite-shm

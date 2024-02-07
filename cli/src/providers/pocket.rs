@@ -4,8 +4,8 @@ use url::Url;
 
 use crate::util::{
     bool_from_int_string, from_str, option_string_date_unix_timestamp_format,
-    optional_vec_from_map, string_date_unix_timestamp_format,
-    try_url_from_string, vec_from_map,
+    optional_vec_from_map, string_date_unix_timestamp_format, try_url_from_string,
+    vec_from_map,
 };
 
 #[derive(Serialize)]
@@ -156,7 +156,6 @@ pub struct ItemTag {
 pub struct PocketItem {
     #[serde(deserialize_with = "from_str")]
     pub item_id: u64,
-
     #[serde(default, deserialize_with = "try_url_from_string")]
     pub given_url: Option<Url>,
     pub given_title: String,
@@ -185,6 +184,7 @@ pub struct PocketItem {
 
     #[serde(default, deserialize_with = "optional_vec_from_map")]
     pub tags: Option<Vec<ItemTag>>,
+    pub excerpt: Option<String>,
 
     pub lang: Option<String>,
     pub time_to_read: Option<u64>,
@@ -199,7 +199,7 @@ pub async fn get(
     access_token: &str,
     consumer_key: &str,
     client: &reqwest::Client,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<Vec<PocketItem>, Box<dyn std::error::Error>> {
     let body = &PocketRequest {
         access_token,
         consumer_key,
@@ -220,7 +220,5 @@ pub async fn get(
     let resp_json: PocketGetResponse = req.json().await?;
     // let resp_map = req.json::<serde_json::Map<String, Value>>().await?;
     // println!("{:#?}", resp_map);
-    println!("{:#?}", resp_json);
-
-    Ok(())
+    Ok(resp_json.list)
 }
