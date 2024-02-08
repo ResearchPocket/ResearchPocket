@@ -1,2 +1,4 @@
-# pocket-research
-A (deemed to be) free simple self-hostable research platform that integrates with getpocket.com and works on the web and terminal
+# Pocket Research
+
+A simple self-hostable save-it-later tool that integrates with getpocket.com
+and works(in progress) on the web and terminal

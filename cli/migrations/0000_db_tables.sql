@@ -7,10 +7,10 @@ CREATE TABLE if not exists items (
     id INTEGER PRIMARY KEY,
     uri TEXT UNIQUE,
     title TEXT,
-    excerpt TEXT,
     -- summary
-    time_added INTEGER,
+    excerpt TEXT,
     -- timestamp as unix time
+    time_added INTEGER,
     favorite BOOLEAN,
     lang TEXT,
     provider_id INTEGER,
