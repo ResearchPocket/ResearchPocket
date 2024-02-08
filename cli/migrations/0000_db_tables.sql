@@ -1,6 +1,7 @@
 CREATE TABLE if not exists providers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL
+    name TEXT NOT NULL,
+    secret TEXT
 );
 CREATE TABLE if not exists items (
     id INTEGER PRIMARY KEY,
