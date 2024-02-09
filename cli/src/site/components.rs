@@ -1,10 +1,12 @@
-use axohtml::{html, unsafe_text};
+use axohtml::{html, text};
 
 use crate::db::Tags;
 
 pub fn tag(tag_name: &str) -> Box<axohtml::elements::li<String>> {
     html! {
-        <li style="cursor: pointer; background-color: #f5f5f5; padding: 5px">{ unsafe_text!(tag_name) }</li>
+        <li style="cursor: pointer; background-color: #f5f5f5; padding: 5px">
+            { text!(tag_name) }
+        </li>
     }
 }
 
