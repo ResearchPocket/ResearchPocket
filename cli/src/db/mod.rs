@@ -98,7 +98,8 @@ impl DB {
     }
 
     pub async fn get_all_items(&self) -> Result<Vec<ResearchItem>, sqlx::Error> {
-        sqlx::query_as::<_, ResearchItem>("SELECT * FROM items")
+        // get all items sorted by time_added
+        sqlx::query_as::<_, ResearchItem>("SELECT * FROM items ORDER BY time_added DESC")
             .fetch_all(&self.pool)
             .await
     }
