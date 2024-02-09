@@ -20,6 +20,7 @@ CREATE TABLE if not exists tags (tag_name TEXT PRIMARY KEY);
 CREATE TABLE if not exists item_tags (
     item_id INTEGER,
     tag_name TEXT,
+    PRIMARY KEY(item_id, tag_name),
     FOREIGN KEY(item_id) REFERENCES items(id),
     FOREIGN KEY(tag_name) REFERENCES tags(tag_name)
 );

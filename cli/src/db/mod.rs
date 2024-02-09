@@ -9,7 +9,6 @@ pub struct Providers {
 }
 
 #[derive(Clone, FromRow, Debug, sqlx::Type)]
-#[allow(dead_code)]
 pub struct Tags {
     pub tag_name: String,
 }
@@ -23,6 +22,14 @@ pub struct ResearchItem {
     pub time_added: i64,
     pub favorite: bool,
     pub lang: Option<String>,
+}
+
+impl ResearchItem {
+    /// Of the format "21 Aug'21, 5pm"
+    pub fn format_time_added(&self) -> String {
+        let date = chrono::NaiveDateTime::from_timestamp_opt(self.time_added, 0).unwrap();
+        date.format("%d %b'%y, %l%P").to_string()
+    }
 }
 
 pub struct DB {
@@ -79,17 +86,44 @@ impl DB {
                 .bind(tag.tag_name.clone())
                 .execute(&self.pool)
                 .await?;
-            let _ = sqlx::query("INSERT INTO item_tags (item_id, tag_name) VALUES (?, ?)")
-                .bind(insertable_item.id)
-                .bind(tag.tag_name)
-                .execute(&self.pool)
-                .await?;
+            let _ = sqlx::query(
+                "INSERT OR IGNORE INTO item_tags (item_id, tag_name) VALUES (?, ?)",
+            )
+            .bind(insertable_item.id)
+            .bind(tag.tag_name)
+            .execute(&self.pool)
+            .await?;
         }
         Ok(())
     }
 
     pub async fn get_all_items(&self) -> Result<Vec<ResearchItem>, sqlx::Error> {
         sqlx::query_as::<_, ResearchItem>("SELECT * FROM items")
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    pub async fn get_item_tags(&self, item_id: i64) -> Result<Vec<Tags>, sqlx::Error> {
+        sqlx::query_as::<_, Tags>("SELECT tag_name FROM item_tags WHERE item_id = ?")
+            .bind(item_id)
+            .fetch_all(&self.pool)
+            .await
+    }
+
+    pub async fn get_all_item_tags(
+        &self,
+    ) -> Result<Vec<(Vec<Tags>, ResearchItem)>, sqlx::Error> {
+        let items = self.get_all_items().await?;
+        let mut item_tags = Vec::<(Vec<Tags>, ResearchItem)>::new();
+        for item in items {
+            let tags = self.get_item_tags(item.id).await?;
+            item_tags.push((tags, item));
+        }
+        Ok(item_tags)
+    }
+
+    pub async fn get_all_tags(&self) -> Result<Vec<Tags>, sqlx::Error> {
+        sqlx::query_as::<_, Tags>("SELECT tag_name FROM tags")
             .fetch_all(&self.pool)
             .await
     }
