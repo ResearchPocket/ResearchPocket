@@ -28,7 +28,8 @@ struct PocketAuthorizeRequest<'a> {
     code: &'a str,
 }
 
-#[derive(Deserialize, Debug, PartialEq)]
+#[derive(Deserialize, Debug)]
+#[allow(dead_code)]
 struct PocketAuthorizeResponse {
     access_token: String,
     username: String,
@@ -63,7 +64,8 @@ pub async fn login(
         url
     };
 
-    println!("Follow the url to provide access: {}", authorize_url);
+    println!("Follow the url to provide access:\n{}", authorize_url);
+    println!("Press enter to continue...");
     let _ = std::io::stdin().read_line(&mut String::new());
 
     let body = &PocketAuthorizeRequest {

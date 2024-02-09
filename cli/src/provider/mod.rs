@@ -32,7 +32,7 @@ impl Provider for ProviderPocket {
 
     async fn fetch_items(&self) -> Result<Vec<Self::Item>, Box<dyn std::error::Error>> {
         let access_token = self.access_token.as_ref().ok_or("Access token not found")?;
-        pocket::get(&access_token, &self.consumer_key, &self.client)
+        pocket::get(access_token, &self.consumer_key, &self.client)
             .await
             .map(|items| items.to_vec())
     }

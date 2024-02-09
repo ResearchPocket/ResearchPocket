@@ -6,7 +6,6 @@ use sqlx::migrate::MigrateDatabase;
 use std::path::Path;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
-use util::env::Env;
 
 mod db;
 mod provider;
@@ -26,14 +25,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .subcommand(
                     Command::new("auth")
                         .about("Authenticate using a consumer key")
-                        .arg(arg!(--key <CONSUMER_KEY> "Required consumer key")),
+                        .arg(
+                            arg!(-k --key <CONSUMER_KEY> "Consumer key (https://getpocket.com/developer/apps/new)")
+                                .env("POCKET_CONSUMER_KEY")
+                                .required(true)
+                        ),
                 )
                 .subcommand(
                     Command::new("fetch")
-                        .about("fetch items from pocket")
+                        .about("Fetch items from pocket")
                         .args(&[
-                            arg!(--key <CONSUMER_KEY> "Pocket Consumer key"),
-                            arg!(--access <ACCESS_TOKEN> "Pocket Access token"),
+                            arg!(--key <CONSUMER_KEY> "Pocket Consumer key")
+                                .env("POCKET_CONSUMER_KEY")
+                                .required(true),
+                            arg!(--access <ACCESS_TOKEN> "Pocket Access token")
+                                .env("POCKET_ACCESS_TOKEN")
+                                .required(true),
                         ]),
                 ),
         )
@@ -46,16 +53,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .get_matches();
 
-    let env = Env::new();
-
     if let Some(matches) = matches.subcommand_matches("pocket") {
         if let Some(matches) = matches.subcommand_matches("auth") {
             let consumer_key = matches
                 .get_one::<String>("key")
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| env.pocket_consumer_key.expect("Required consumer key"));
+                .expect("Required consumer key")
+                .to_string();
 
-            println!("token: {consumer_key:?}");
+            println!("consumer_key: {consumer_key:?}");
             let provider = ProviderPocket {
                 consumer_key,
                 ..Default::default()
@@ -64,12 +69,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else if let Some(matches) = matches.subcommand_matches("fetch") {
             let consumer_key = matches
                 .get_one::<String>("key")
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| env.pocket_consumer_key.expect("Required consumer key"));
+                .expect("Required consumer key")
+                .to_string();
             let access_token = matches
                 .get_one::<String>("access")
-                .map(|s| s.to_string())
-                .unwrap_or_else(|| env.pocket_access_token.expect("Required access token"));
+                .expect("Required access token")
+                .to_string();
 
             let provider = ProviderPocket {
                 consumer_key,
@@ -82,16 +87,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     println!("Sqlite version: {}", db.get_sqlite_version().await?);
 
                     let provider_id = db.get_provider_id("pocket").await?;
-
-                    eprintln!("Provider id: {}", provider_id);
-
                     let items = provider.fetch_items().await?;
                     eprintln!("Items: {}", items.len());
 
                     for item in items {
                         let insertable_item = item.to_research_item();
                         let tags = item.to_tags();
-                        // on the first 8 charachters of the title or the whole title if it's shorter
                         let title = &insertable_item.title.chars().take(8).collect::<String>();
                         eprint!("{:?} ", title);
                         db.insert_item(insertable_item, tags, provider_id).await?;
@@ -129,6 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .get_one::<String>("path")
             .expect("Path to the site is required");
         let site_path = Path::new(&site_path);
+
         eprintln!("Site path: {site_path:?}");
         let mut index = File::create(site_path.join("index.html")).await?;
         index.write_all(site.html.as_bytes()).await?;
