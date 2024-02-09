@@ -1,12 +1,17 @@
-mod db;
-mod provider;
-mod util;
-
 use crate::provider::{Insertable, Provider, ProviderPocket};
 use clap::{arg, command, Command};
 use db::DB;
+use site::Site;
 use sqlx::migrate::MigrateDatabase;
+use std::path::Path;
+use tokio::fs::File;
+use tokio::io::AsyncWriteExt;
 use util::env::Env;
+
+mod db;
+mod provider;
+mod site;
+mod util;
 
 const DB_URL: &str = "sqlite:research.sqlite";
 
@@ -14,6 +19,7 @@ const DB_URL: &str = "sqlite:research.sqlite";
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = command!() // requires `cargo` feature
         .arg(arg!(-d --debug ... "Turn debugging information on"))
+        .author("KorigamiK <korigamik>")
         .subcommand(
             Command::new("pocket")
                 .about("Pocket related actions")
@@ -33,6 +39,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .subcommand(Command::new("fetch").about("Gets all data from authenticated providers"))
         .subcommand(Command::new("list").about("Lists all items in db"))
+        .subcommand(
+            Command::new("generate")
+                .about("Generate a static site")
+                .arg(arg!(path: [PATH]).index(1)),
+        )
         .get_matches();
 
     let env = Env::new();
@@ -66,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ..Default::default()
             };
 
-            match DB::init(&DB_URL).await {
+            match DB::init(DB_URL).await {
                 Ok(db) => {
                     println!("Sqlite version: {}", db.get_sqlite_version().await?);
 
@@ -80,7 +91,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     for item in items {
                         let insertable_item = item.to_research_item();
                         let tags = item.to_tags();
-                        eprintln!("Inserting item: {:?}", insertable_item.title);
+                        // on the first 8 charachters of the title or the whole title if it's shorter
+                        let title = &insertable_item.title.chars().take(8).collect::<String>();
+                        eprint!("{:?} ", title);
                         db.insert_item(insertable_item, tags, provider_id).await?;
                     }
                 }
@@ -91,6 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     sqlx::Sqlite::create_database(DB_URL).await?;
                     let pool = sqlx::SqlitePool::connect(DB_URL).await?;
                     DB::migrate(&pool).await?;
+                    eprintln!("You should run the command again")
                 }
 
                 Err(err) => {
@@ -98,16 +112,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-    } else if let Some(_) = matches.subcommand_matches("fetch") {
+    } else if matches.subcommand_matches("fetch").is_some() {
         unimplemented!()
-    }
-
-    if let Some(_) = matches.subcommand_matches("list") {
-        let db = DB::init(&DB_URL).await?;
+    } else if matches.subcommand_matches("list").is_some() {
+        let db = DB::init(DB_URL).await?;
         let items = db.get_all_items().await?;
         for item in items {
             println!("{:?}", item);
         }
+    } else if let Some(matches) = matches.subcommand_matches("generate") {
+        let db = DB::init(DB_URL).await?;
+        let tags = db.get_all_tags().await?;
+        let item_tags = db.get_all_item_tags().await?;
+        let site = Site::build(&tags, &item_tags)?;
+        let site_path = matches
+            .get_one::<String>("path")
+            .expect("Path to the site is required");
+        let site_path = Path::new(&site_path);
+        eprintln!("Site path: {site_path:?}");
+        let mut index = File::create(site_path.join("index.html")).await?;
+        index.write_all(site.html.as_bytes()).await?;
     }
 
     Ok(())

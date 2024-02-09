@@ -18,3 +18,4 @@ test.jsonc
 cli/research.sqlite
 cli/research.sqlite-wal
 cli/research.sqlite-shm
+cli/index.html

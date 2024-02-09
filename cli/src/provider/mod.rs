@@ -45,7 +45,7 @@ impl Insertable for PocketItem {
         } else if !self.resolved_title.clone().unwrap_or_default().is_empty() {
             self.resolved_title.clone()
         } else {
-            Some("<No Title>".to_string())
+            Some("Untitled".to_string())
         }
         .unwrap();
 
