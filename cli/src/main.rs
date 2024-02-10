@@ -1,3 +1,4 @@
+use crate::assets::css::build_css;
 use crate::provider::{Insertable, Provider, ProviderPocket};
 use clap::{arg, command, Command};
 use db::DB;
@@ -11,6 +12,7 @@ mod db;
 mod provider;
 mod site;
 mod util;
+mod assets;
 
 const DB_URL: &str = "sqlite:research.sqlite";
 
@@ -130,6 +132,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .get_one::<String>("path")
             .expect("Path to the site is required");
         let site_path = Path::new(&site_path);
+
+        build_css(site_path)?;
 
         eprintln!("Site path: {site_path:?}");
         let mut index = File::create(site_path.join("index.html")).await?;

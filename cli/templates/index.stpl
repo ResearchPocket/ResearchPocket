@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title><%= title %></title>
+    <link href="./dist.css" rel="stylesheet">
+  </head>
+  <body>
+    <div class="container mx-auto px-4">
+      <header class="text-center py-5">
+        <h1 class="text-5xl font-bold"><%= title %></h1>
+        <p class="mt-3">Your personal research library</p>
+      </header>
+      <section>
+        <details class="container mx-auto px-4">
+          <summary class="text-xl font-bold">Tags</summary>
+          <ul class="inline-flex flex-wrap gap-2">
+            <% for tag in tags { %>
+            <li class="pointer bg-gray-200 p-2 rounded"><%= tag.tag_name %></li>
+            <% } %>
+          </ul>
+        </details>
+      </section>
+      <main>
+        <ul class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <% for (tags, item) in item_tags { %>
+          <li class="p-2 rounded flex flex-col gap-2">
+            <a
+              class="underline hover:text-gray-600" 
+              href=<%=&item.uri%>
+            >
+              <%=&item.title%>
+            </a>
+            <p><%=&item.format_time_added()%></p>
+            <ul class="inline-flex flex-wrap gap-2">
+              <% for tag in tags { %>
+              <li class="pointer p-2 rounded"><%= tag.tag_name %></li>
+              <% } %>
+            </ul>
+            <p class="break-words"><%=&item.excerpt%></p>
+          </li>
+          <% } %>
+      </main>
+    </div>
+  </body>
+</html>
