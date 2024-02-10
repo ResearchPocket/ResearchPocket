@@ -137,7 +137,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         eprintln!("Site path: {site_path:?}");
         let mut index = File::create(site_path.join("index.html")).await?;
-        index.write_all(site.html.as_bytes()).await?;
+        index.write_all(site.index_html.as_bytes()).await?;
+
+        let mut search = File::create(site_path.join("search.html")).await?;
+        search.write_all(site.search_html.as_bytes()).await?;
     }
 
     Ok(())

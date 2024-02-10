@@ -1,3 +1,4 @@
+use serde::Serialize;
 use sqlx::{sqlite::SqlitePoolOptions, FromRow, Pool, Row, Sqlite};
 
 #[derive(Clone, FromRow, Debug)]
@@ -8,12 +9,12 @@ pub struct Providers {
     pub secret: Option<String>,
 }
 
-#[derive(Clone, FromRow, Debug, sqlx::Type)]
+#[derive(Clone, FromRow, Debug, sqlx::Type, Serialize)]
 pub struct Tags {
     pub tag_name: String,
 }
 
-#[derive(Clone, FromRow, Debug)]
+#[derive(Clone, FromRow, Debug, Serialize)]
 pub struct ResearchItem {
     pub id: i64,
     pub uri: String,
