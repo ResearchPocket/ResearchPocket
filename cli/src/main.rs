@@ -1,4 +1,4 @@
-use crate::assets::css::build_css;
+use crate::assets::css::{build_css, DEFAULT_CSS_OUTPUT_FILE};
 use crate::provider::{Insertable, Provider, ProviderPocket};
 use clap::{arg, command, Command};
 use db::DB;
@@ -8,11 +8,11 @@ use std::path::Path;
 use tokio::fs::File;
 use tokio::io::AsyncWriteExt;
 
+mod assets;
 mod db;
 mod provider;
 mod site;
 mod util;
-mod assets;
 
 const DB_URL: &str = "sqlite:research.sqlite";
 
@@ -51,8 +51,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .subcommand(
             Command::new("generate")
                 .about("Generate a static site")
-                .arg(arg!(path: [PATH]).index(1)),
+                .args(&[
+                    arg!(path: [PATH]).index(1).required(true),
+                    arg!(--css <CSS_DIR> "Path to the tailwind css config with main.css").required(true),
+                ]),
         )
+        .arg_required_else_help(true)
         .get_matches();
 
     if let Some(matches) = matches.subcommand_matches("pocket") {
@@ -124,16 +128,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{:?}", item);
         }
     } else if let Some(matches) = matches.subcommand_matches("generate") {
+        let site_path = matches.get_one::<String>("path").unwrap();
+        let site_path = Path::new(&site_path);
+
+        let css_path = matches.get_one::<String>("css").unwrap();
+        let css_path = Path::new(&css_path);
+
         let db = DB::init(DB_URL).await?;
         let tags = db.get_all_tags().await?;
         let item_tags = db.get_all_item_tags().await?;
-        let site = Site::build(&tags, &item_tags)?;
-        let site_path = matches
-            .get_one::<String>("path")
-            .expect("Path to the site is required");
-        let site_path = Path::new(&site_path);
 
-        build_css(site_path)?;
+        let css_file = css_path
+            .join(DEFAULT_CSS_OUTPUT_FILE)
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let site = Site::build(&tags, &item_tags, &css_file)?;
+
+        build_css(css_path)?;
 
         eprintln!("Site path: {site_path:?}");
         let mut index = File::create(site_path.join("index.html")).await?;

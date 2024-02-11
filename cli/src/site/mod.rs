@@ -12,8 +12,18 @@ pub struct Site {
 #[template(rm_whitespace = true)]
 struct IndexTemplate<'a> {
     title: &'a str,
+    css_path: &'a str,
     tags: Vec<&'a str>,
     item_tags: &'a [(Vec<Tags>, ResearchItem)],
+}
+
+#[derive(TemplateOnce, Serialize)]
+#[template(path = "search.stpl")]
+#[template(rm_whitespace = true)]
+struct SearchTemplate<'a> {
+    title: &'a str,
+    css_path: &'a str,
+    item_tags: Vec<ItemTag<'a>>,
 }
 
 #[derive(Serialize)]
@@ -23,26 +33,21 @@ struct ItemTag<'a> {
     pub item: &'a ResearchItem,
 }
 
-#[derive(TemplateOnce, Serialize)]
-#[template(path = "search.stpl")]
-#[template(rm_whitespace = true)]
-struct SearchTemplate<'a> {
-    title: &'a str,
-    item_tags: Vec<ItemTag<'a>>,
-}
-
 const TITLE: &str = "Pocket Research";
 
 impl Site {
     pub fn build(
         tags: &[Tags],
         item_tags: &[(Vec<Tags>, ResearchItem)],
+        css_file: &str,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let ctx = IndexTemplate {
             title: TITLE,
             tags: tags.iter().map(|t| t.tag_name.as_str()).collect::<Vec<_>>(),
             item_tags,
+            css_path: css_file,
         };
+
         let index_html = ctx.render_once()?;
 
         let item_tags = item_tags
@@ -55,6 +60,7 @@ impl Site {
 
         let ctx = SearchTemplate {
             item_tags,
+            css_path: css_file,
             title: "Search",
         };
         let search_html = ctx.render_once()?;

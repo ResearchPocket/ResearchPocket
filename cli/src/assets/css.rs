@@ -1,37 +1,30 @@
-use std::env;
 use std::io::Write;
 use std::path::Path;
 use std::process::Command;
 
-const MANIFEST_PATH: &str = env!("CARGO_MANIFEST_DIR");
-const CSS_SRC_PATH: &str = "../css/main.css";
-const TAILWIND_SRC_PATH: &str = "../tailwind.config.js";
-const DEFAULT_CSS_OUTPUT_DIR: &str = "./dist.css";
+const TAILWIND_CONFIG_FILE: &str = "tailwind.config.js";
+pub const DEFAULT_CSS_OUTPUT_FILE: &str = "dist.css";
 
-pub fn build_css(dist_dir: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub fn build_css(input_css_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let binary_path = tailwind_path()?;
 
-    let manifest_dir = Path::new(MANIFEST_PATH);
-    let css_src_path = manifest_dir.join(CSS_SRC_PATH);
-    let tailwind_config_path = manifest_dir.join(TAILWIND_SRC_PATH);
-    let output_path = dist_dir.join(DEFAULT_CSS_OUTPUT_DIR);
+    let tailwind_config_path = input_css_path.join(TAILWIND_CONFIG_FILE);
+    let output_path = input_css_path.join(DEFAULT_CSS_OUTPUT_FILE);
     let output = Command::new(binary_path)
         .args([
             "-c",
             tailwind_config_path.to_str().unwrap(),
             "-i",
-            css_src_path.to_str().unwrap(),
+            input_css_path.join("main.css").to_str().unwrap(),
             "-o",
             output_path.to_str().unwrap(),
             "--minify",
         ])
         .output()?;
     std::io::stderr().write_all(&output.stderr)?;
-    output
-        .status
-        .success()
-        .then_some(true)
-        .expect("Tailwind failed to compile CSS!");
+    output.status.success().then_some(true).unwrap_or_else(|| {
+        panic!("Tailwind failed to compile {input_css_path:?} to {output_path:?}")
+    });
 
     Ok(())
 }
@@ -56,5 +49,4 @@ fn tailwind_path() -> Result<String, Box<dyn std::error::Error>> {
         eprintln!("Couldn't find Tailwind binary");
         Err("Could not find Tailwind binary")?
     }
-    
 }
