@@ -1,11 +1,11 @@
-use crate::assets::css::{build_css, DEFAULT_CSS_OUTPUT_FILE};
+use crate::assets::css::build_css;
 use crate::provider::{Insertable, Provider, ProviderPocket};
 use clap::{arg, command, crate_authors, crate_description, crate_name, Command};
 use db::DB;
 use site::Site;
 use sqlx::migrate::MigrateDatabase;
 use std::path::Path;
-use tokio::fs::File;
+use tokio::fs::{metadata, File};
 use tokio::io::AsyncWriteExt;
 
 mod assets;
@@ -55,7 +55,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .about("Generate a static site")
                 .args(&[
                     arg!(path: [PATH]).index(1).required(true),
-                    arg!(--css <CSS_DIR> "Path to the tailwind css config with main.css").required(true),
+                    arg!(--assets <ASSETS_DIR> "Path to site assets (main.css, search.js)").required(true),
                 ]),
         )
         .arg_required_else_help(true)
@@ -133,21 +133,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let site_path = matches.get_one::<String>("path").unwrap();
         let site_path = Path::new(&site_path);
 
-        let css_path = matches.get_one::<String>("css").unwrap();
-        let css_path = Path::new(&css_path);
+        let assets_dir = matches.get_one::<String>("assets").unwrap();
+        let assets_dir = Path::new(&assets_dir).to_str().expect("Invalid assets dir");
 
         let db = DB::init(DB_URL).await?;
         let tags = db.get_all_tags().await?;
         let item_tags = db.get_all_item_tags().await?;
 
-        let css_file = css_path
-            .join(DEFAULT_CSS_OUTPUT_FILE)
-            .to_str()
-            .unwrap()
-            .to_owned();
-        let site = Site::build(&tags, &item_tags, &css_file)?;
+        let site = Site::build(&tags, &item_tags, assets_dir)?;
 
-        build_css(css_path)?;
+        metadata(&Path::new(&assets_dir).join("search.js"))
+            .await
+            .expect("Missing search.js");
+
+        let input_css = &Path::new(&assets_dir).join("main.css");
+        metadata(input_css).await.expect("Missing main.css");
+
+        build_css(input_css)?;
 
         eprintln!("Site path: {site_path:?}");
         let mut index = File::create(site_path.join("index.html")).await?;

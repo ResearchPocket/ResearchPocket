@@ -5,9 +5,10 @@ use std::process::Command;
 const TAILWIND_CONFIG_FILE: &str = "tailwind.config.js";
 pub const DEFAULT_CSS_OUTPUT_FILE: &str = "dist.css";
 
-pub fn build_css(input_css_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+pub fn build_css(input_css_file: &Path) -> Result<(), Box<dyn std::error::Error>> {
     let binary_path = tailwind_path()?;
 
+    let input_css_path = input_css_file.parent().expect("Invalid CSS file");
     let tailwind_config_path = input_css_path.join(TAILWIND_CONFIG_FILE);
     let output_path = input_css_path.join(DEFAULT_CSS_OUTPUT_FILE);
     let output = Command::new(binary_path)
@@ -15,7 +16,7 @@ pub fn build_css(input_css_path: &Path) -> Result<(), Box<dyn std::error::Error>
             "-c",
             tailwind_config_path.to_str().unwrap(),
             "-i",
-            input_css_path.join("main.css").to_str().unwrap(),
+            input_css_file.to_str().unwrap(),
             "-o",
             output_path.to_str().unwrap(),
             "--minify",
@@ -23,7 +24,7 @@ pub fn build_css(input_css_path: &Path) -> Result<(), Box<dyn std::error::Error>
         .output()?;
     std::io::stderr().write_all(&output.stderr)?;
     output.status.success().then_some(true).unwrap_or_else(|| {
-        panic!("Tailwind failed to compile {input_css_path:?} to {output_path:?}")
+        panic!("Tailwind failed to compile {input_css_file:?} to {output_path:?}")
     });
 
     Ok(())

@@ -1,3 +1,3 @@
 <script>
-    const item_tags = <%- item_tags | json %>
+    var item_tags = <%- item_tags | json %>
 </script>
