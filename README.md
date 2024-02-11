@@ -7,17 +7,18 @@
 <br />
 <div align="center">
   <!-- Github Actions -->
-  <a href="https://github.com/launchbadge/sqlx/actions/workflows/sqlx.yml?query=branch%3Amain">
+  <a href="https://github.com/korigamik/ResearchPocket/actions/workflows/publish-release.yml?query=branch%3Amain">
     <img src="https://img.shields.io/github/actions/workflow/status/KorigamiK/ResearchPocket/publish-release.yml?branch=main&style=flat-square" alt="actions status" /></a>
   <!-- Version -->
-  <a href="https://crates.io/crates/sqlx">
-    <img src="https://img.shields.io/crates/v/research.svg?style=flat-square"
-    alt="Crates.io version" /></a>
+  <a href="https://crates.io/crates/research">
+    <img src="https://img.shields.io/crates/v/research.svg?style=flat-square" alt="Crates.io version" />
+  </a>
   <!-- Docs -->
   <a href="https://docs.rs/research">
-  <img src="https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square" alt="docs.rs docs" /></a>
+      <img src="https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square" alt="docs.rs docs" />
+  </a>
   <!-- Downloads -->
-  <a href="https://crates.io/crates/sqlx">
+  <a href="https://crates.io/crates/research">
     <img src="https://img.shields.io/crates/d/research.svg?style=flat-square" alt="Download" />
   </a>
 </div>
