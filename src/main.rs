@@ -14,12 +14,9 @@ mod provider;
 mod site;
 mod util;
 
-const DB_URL: &str = "sqlite:research.sqlite";
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = command!() // requires `cargo` feature
-        .arg(arg!(-d --debug ... "Turn debugging information on"))
         .before_help(format!("{} 🔖", crate_name!().to_uppercase()))
         .author(crate_authors!("\n"))
         .about(crate_description!())
@@ -49,7 +46,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ),
         )
         .subcommand(Command::new("fetch").about("Gets all data from authenticated providers"))
-        .subcommand(Command::new("list").about("Lists all items in db"))
+        .subcommand(Command::new("list").about("Lists all items in the database"))
+        .subcommand(Command::new("init").about("Initializes the database").arg(arg!(path: [PATH]).index(1).required(true)))
         .subcommand(
             Command::new("generate")
                 .about("Generate a static site")
@@ -58,8 +56,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     arg!(--assets <ASSETS_DIR> "Path to site assets (main.css, search.js)").required(true),
                 ]),
         )
+        .args(&[
+            arg!(--db <DB_URL> "Database url")
+                .env("DATABASE_URL")
+                .default_value("./research.sqlite"),
+            arg!(-d --debug ... "Turn debugging information on")
+        ])
         .arg_required_else_help(true)
         .get_matches();
+
+    let db_url = matches.get_one::<String>("db").expect("Database url");
 
     if let Some(matches) = matches.subcommand_matches("pocket") {
         if let Some(matches) = matches.subcommand_matches("auth") {
@@ -90,7 +96,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ..Default::default()
             };
 
-            match DB::init(DB_URL).await {
+            match DB::init(db_url).await {
                 Ok(db) => {
                     println!("Sqlite version: {}", db.get_sqlite_version().await?);
 
@@ -109,9 +115,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                 Err(sqlx::Error::Database(err)) => {
                     eprintln!("Database error: {err}");
-                    eprintln!("First run :D\nCreating new database: {DB_URL}");
-                    sqlx::Sqlite::create_database(DB_URL).await?;
-                    let pool = sqlx::SqlitePool::connect(DB_URL).await?;
+                    eprintln!("First run :D\nCreating new database: {db_url}");
+                    sqlx::Sqlite::create_database(db_url).await?;
+                    let pool = sqlx::SqlitePool::connect(db_url).await?;
                     DB::migrate(&pool).await?;
                     eprintln!("You should run the command again")
                 }
@@ -124,7 +130,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else if matches.subcommand_matches("fetch").is_some() {
         unimplemented!()
     } else if matches.subcommand_matches("list").is_some() {
-        let db = DB::init(DB_URL).await?;
+        let db = DB::init(db_url).await.map_err(|err| {
+            match err {
+                sqlx::Error::Database(..) => {
+                    eprintln!("Database not found");
+                    eprintln!("Please set the database corrdct path with --db");
+                    eprintln!("Or consider initializing the database with the 'init' command");
+                }
+                _ => {
+                    eprintln!("Unknown error: {err:?}");
+                }
+            }
+            err
+        })?;
         let items = db.get_all_items().await?;
         for item in items {
             println!("{:?}", item);
@@ -136,7 +154,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let assets_dir = matches.get_one::<String>("assets").unwrap();
         let assets_dir = Path::new(&assets_dir).to_str().expect("Invalid assets dir");
 
-        let db = DB::init(DB_URL).await?;
+        let db = DB::init(db_url).await.map_err(|err| {
+            eprintln!("Please set the corrdct database path with --db");
+            err
+        })?;
         let tags = db.get_all_tags().await?;
         let item_tags = db.get_all_item_tags().await?;
 
