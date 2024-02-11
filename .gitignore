@@ -22,3 +22,9 @@ cli/index.html
 test.session.sql
 cli/dist.css
 cli/search.html
+dist.css
+search.html
+index.html
+research.sqlite
+research.sqlite-shm
+research.sqlite-wal

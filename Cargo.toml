@@ -1,5 +1,5 @@
 [package]
-name = "cli"
+name = "research"
 version = "0.1.0"
 edition = "2021"
 keywords = ["static-site-generator", "reading-list", "pocket"]
