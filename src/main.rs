@@ -1,6 +1,6 @@
 use crate::assets::css::{build_css, DEFAULT_CSS_OUTPUT_FILE};
 use crate::provider::{Insertable, Provider, ProviderPocket};
-use clap::{arg, command, Command};
+use clap::{arg, command, crate_authors, crate_description, crate_name, Command};
 use db::DB;
 use site::Site;
 use sqlx::migrate::MigrateDatabase;
@@ -20,7 +20,9 @@ const DB_URL: &str = "sqlite:research.sqlite";
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = command!() // requires `cargo` feature
         .arg(arg!(-d --debug ... "Turn debugging information on"))
-        .author("KorigamiK <korigamik>")
+        .before_help(format!("{} 🔖", crate_name!().to_uppercase()))
+        .author(crate_authors!("\n"))
+        .about(crate_description!())
         .subcommand(
             Command::new("pocket")
                 .about("Pocket related actions")
