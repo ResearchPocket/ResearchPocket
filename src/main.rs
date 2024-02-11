@@ -47,7 +47,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .subcommand(Command::new("fetch").about("Gets all data from authenticated providers"))
         .subcommand(Command::new("list").about("Lists all items in the database"))
-        .subcommand(Command::new("init").about("Initializes the database").arg(arg!(path: [PATH]).index(1).required(true)))
+        .subcommand(Command::new("init")
+            .about("Initializes the database")
+            .arg(arg!(path: [PATH])
+                .index(1)
+                .required(true)))
         .subcommand(
             Command::new("generate")
                 .about("Generate a static site")
@@ -89,46 +93,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .get_one::<String>("access")
                 .expect("Required access token")
                 .to_string();
-
-            let provider = ProviderPocket {
-                consumer_key,
-                access_token: Some(access_token),
-                ..Default::default()
-            };
-
-            match DB::init(db_url).await {
-                Ok(db) => {
-                    println!("Sqlite version: {}", db.get_sqlite_version().await?);
-
-                    let provider_id = db.get_provider_id("pocket").await?;
-                    let items = provider.fetch_items().await?;
-                    eprintln!("Items: {}", items.len());
-
-                    for item in items {
-                        let insertable_item = item.to_research_item();
-                        let tags = item.to_tags();
-                        let title = &insertable_item.title.chars().take(8).collect::<String>();
-                        eprint!("{:?} ", title);
-                        db.insert_item(insertable_item, tags, provider_id).await?;
-                    }
-                }
-
-                Err(sqlx::Error::Database(err)) => {
-                    eprintln!("Database error: {err}");
-                    eprintln!("First run :D\nCreating new database: {db_url}");
-                    sqlx::Sqlite::create_database(db_url).await?;
-                    let pool = sqlx::SqlitePool::connect(db_url).await?;
-                    DB::migrate(&pool).await?;
-                    eprintln!("You should run the command again")
-                }
-
-                Err(err) => {
-                    eprintln!("Unknown error: {err}");
-                }
-            }
+            fetch_from_pocket(&db_url, consumer_key, access_token).await?;
         }
-    } else if matches.subcommand_matches("fetch").is_some() {
-        unimplemented!()
+    } else if let Some(_) = matches.subcommand_matches("fetch") {
+        unimplemented!(
+            "Fetch from all sources is not implemented yet! Please use 'pocket fetch' for now."
+        )
     } else if matches.subcommand_matches("list").is_some() {
         let db = DB::init(db_url).await.map_err(|err| {
             match err {
@@ -178,6 +148,47 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut search = File::create(site_path.join("search.html")).await?;
         search.write_all(site.search_html.as_bytes()).await?;
+    }
+    if let Some(matches) = matches.subcommand_matches("init") {
+        let db_path = matches.get_one::<String>("path").expect("Database path");
+        let db_url = {
+            let path = Path::new(&db_path).join("research.sqlite");
+            path.to_str().expect("Invalid db path").to_owned()
+        };
+        eprintln!("Creating new database: {db_url}");
+        sqlx::Sqlite::create_database(&db_url).await?;
+        let pool = sqlx::SqlitePool::connect(&db_url).await?;
+        DB::migrate(&pool).await?;
+        eprintln!("Database created and migrated successfully!")
+    }
+
+    Ok(())
+}
+
+async fn fetch_from_pocket<'a>(
+    db_url: &str,
+    consumer_key: String,
+    access_token: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let provider = ProviderPocket {
+        consumer_key,
+        access_token: Some(access_token),
+        ..Default::default()
+    };
+
+    let db = DB::init(db_url).await?;
+    println!("Sqlite version: {}", db.get_sqlite_version().await?);
+
+    let provider_id = db.get_provider_id("pocket").await?;
+    let items = provider.fetch_items().await?;
+    eprintln!("Items: {}", items.len());
+
+    for item in items {
+        let insertable_item = item.to_research_item();
+        let tags = item.to_tags();
+        let title = &insertable_item.title.chars().take(8).collect::<String>();
+        eprint!("{:?} ", title);
+        db.insert_item(insertable_item, tags, provider_id).await?;
     }
 
     Ok(())
