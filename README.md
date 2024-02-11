@@ -1,12 +1,28 @@
-# Pocket Research
+<h1 align="center">Research Pocket 🔖</h1>
+<div align="center">
+  <strong>
+    The <em>last</em> save-it-later tool you'll ever need
+  </strong>
+</div>
+
+<br />
 
 A self-hostable save-it-later tool that integrates with
-[getpocket.com](https://getpocket.com) and works on the web and terminal
+[getpocket.com](https://getpocket.com) (and others soon). works on the web and terminal
+
+## How it works
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="./.github/explainer-dark.png">
+  <source media="(prefers-color-scheme: light)" srcset="./.github/explainer.png">
+  <img alt="Hashnode logo" src="./.github/explainer.png" >
+</picture>
+
 
 ## Cli
 
 ```sh
-Usage: cli [OPTIONS] [COMMAND]
+Usage: research [OPTIONS] [COMMAND]
 
 Commands:
   pocket    Pocket related actions
