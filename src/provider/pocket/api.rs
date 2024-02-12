@@ -36,10 +36,12 @@ struct PocketAuthorizeResponse {
     state: Option<String>,
 }
 
+/// Authenticate with Pocket
+/// Returns the access token
 pub async fn login(
     client: &reqwest::Client,
     consumer_key: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<String, Box<dyn std::error::Error>> {
     let body = PocketOAuthRequest {
         consumer_key,
         redirect_uri: "0.0.0.0",
@@ -83,7 +85,7 @@ pub async fn login(
     let resp: PocketAuthorizeResponse = req.json().await?;
     println!("{:?}", resp);
 
-    Ok(())
+    Ok(resp.access_token)
 }
 
 #[derive(Serialize)]
@@ -224,5 +226,3 @@ pub async fn get(
     // println!("{:#?}", resp_map);
     Ok(resp_json.list)
 }
-
-

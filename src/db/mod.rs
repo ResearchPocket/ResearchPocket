@@ -6,7 +6,6 @@ use sqlx::{sqlite::SqlitePoolOptions, FromRow, Pool, Row, Sqlite};
 pub struct Providers {
     pub id: i64,
     pub name: String,
-    pub secret: Option<String>,
 }
 
 #[derive(Clone, FromRow, Debug, sqlx::Type, Serialize)]
@@ -25,6 +24,22 @@ pub struct ResearchItem {
     pub lang: Option<String>,
 }
 
+#[derive(Clone, FromRow, Debug, Default)]
+pub struct Secrets {
+    pub pocket_consumer_key: Option<String>,
+    pub pocket_access_token: Option<String>,
+    pub user_id: i64,
+}
+
+impl Secrets {
+    pub fn new(s: Option<Self>) -> Self {
+        match s {
+            Some(s) => s,
+            None => Self::default(),
+        }
+    }
+}
+
 impl ResearchItem {
     /// Of the format "21 Aug'21, 5pm"
     pub fn format_time_added(&self) -> String {
@@ -32,6 +47,8 @@ impl ResearchItem {
         date.format("%d %b'%y, %l%P").to_string()
     }
 }
+
+const DEFAULT_USER_ID: i64 = 0;
 
 pub struct DB {
     pub pool: Pool<Sqlite>,
@@ -128,5 +145,25 @@ impl DB {
         sqlx::query_as::<_, Tags>("SELECT tag_name FROM tags")
             .fetch_all(&self.pool)
             .await
+    }
+
+    pub async fn get_secrets(&self) -> Result<Secrets, sqlx::Error> {
+        let row = sqlx::query_as::<_, Secrets>("SELECT * FROM secrets")
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(Secrets::new(row))
+    }
+
+    pub async fn set_secret(&self, secrets: Secrets) -> Result<(), sqlx::Error> {
+        let _ = sqlx::query(
+            "UPDATE secrets SET pocket_consumer_key = ?, pocket_access_token = ? WHERE user_id = (?)",
+        )
+        .bind(secrets.pocket_consumer_key)
+        .bind(secrets.pocket_access_token)
+        .bind(DEFAULT_USER_ID)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
     }
 }

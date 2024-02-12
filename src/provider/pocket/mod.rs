@@ -1,9 +1,8 @@
-use super::{Insertable, Provider, ResearchItem}; 
-use crate::db::Tags;
-use api::{PocketItem, login, get};
+use super::{Insertable, Provider, ResearchItem};
+use crate::db::{Secrets, Tags};
+use api::{get, login, PocketItem};
 
 pub mod api;
-
 
 #[derive(Debug, Default)]
 pub struct ProviderPocket {
@@ -12,13 +11,19 @@ pub struct ProviderPocket {
     pub client: reqwest::Client,
 }
 
-impl Provider<PocketItem> for ProviderPocket {
-    async fn authenticate(&self) -> Result<(), Box<dyn std::error::Error>> {
-        login(&self.client, &self.consumer_key).await?;
-        Ok(())
+impl Provider for ProviderPocket {
+    type Item = PocketItem;
+
+    async fn authenticate(&self) -> Result<Secrets, Box<dyn std::error::Error>> {
+        let access_token = login(&self.client, &self.consumer_key).await?;
+        Ok(Secrets {
+            pocket_consumer_key: Some(self.consumer_key.clone()),
+            pocket_access_token: Some(access_token),
+            ..Default::default()
+        })
     }
 
-    async fn fetch_items(&self) -> Result<Vec<PocketItem>, Box<dyn std::error::Error>> {
+    async fn fetch_items(&self) -> Result<Vec<Self::Item>, Box<dyn std::error::Error>> {
         let access_token = self.access_token.as_ref().ok_or("Access token not found")?;
         get(access_token, &self.consumer_key, &self.client)
             .await

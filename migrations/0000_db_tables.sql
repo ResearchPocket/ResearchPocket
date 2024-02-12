@@ -1,7 +1,6 @@
 CREATE TABLE if not exists providers (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    secret TEXT
+    name TEXT NOT NULL
 );
 CREATE TABLE if not exists items (
     id INTEGER PRIMARY KEY,
@@ -23,4 +22,9 @@ CREATE TABLE if not exists item_tags (
     PRIMARY KEY(item_id, tag_name),
     FOREIGN KEY(item_id) REFERENCES items(id),
     FOREIGN KEY(tag_name) REFERENCES tags(tag_name)
+);
+CREATE TABLE if not exists secrets (
+    user_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pocket_consumer_key TEXT,
+    pocket_access_token TEXT
 );

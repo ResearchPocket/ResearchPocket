@@ -49,7 +49,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .subcommand(Command::new("list").about("Lists all items in the database"))
         .subcommand(Command::new("init")
             .about("Initializes the database")
-            .arg(arg!(path: [PATH])
+            .arg(arg!(path: [PATH] "This path will be used to create the database file and SAVED for future use.")
                 .index(1)
                 .required(true)))
         .subcommand(
@@ -73,6 +73,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(matches) = matches.subcommand_matches("pocket") {
         if let Some(matches) = matches.subcommand_matches("auth") {
+            let db = DB::init(db_url).await.map_err(|err| {
+                match err {
+                    sqlx::Error::Database(..) => {
+                        eprintln!("Database not found");
+                        eprintln!("Please set the database corrdct path with --db");
+                        eprintln!(
+                            "Or consider initializing the database with the 'init' command"
+                        );
+                    }
+                    _ => {
+                        eprintln!("Unknown error: {err:?}");
+                    }
+                }
+                err
+            })?;
             let consumer_key = matches
                 .get_one::<String>("key")
                 .expect("Required consumer key")
@@ -83,7 +98,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 consumer_key,
                 ..Default::default()
             };
-            provider.authenticate().await?;
+            let secrets = provider.authenticate().await?;
+            db.set_secret(secrets).await?;
         } else if let Some(matches) = matches.subcommand_matches("fetch") {
             let consumer_key = matches
                 .get_one::<String>("key")
@@ -96,9 +112,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             fetch_from_pocket(db_url, consumer_key, access_token).await?;
         }
     } else if matches.subcommand_matches("fetch").is_some() {
-        unimplemented!(
-            "Fetch from all sources is not implemented yet! Please use 'pocket fetch' for now."
-        )
+        let db = DB::init(&db_url).await.map_err(|err| {
+            match err {
+                sqlx::Error::Database(..) => {
+                    eprintln!("Database not found");
+                    eprintln!("Please set the database corrdct path with --db");
+                    eprintln!("Or consider initializing the database with the 'init' command");
+                }
+                _ => {
+                    eprintln!("Unknown error: {err:?}");
+                }
+            }
+            err
+        })?;
+        let secrets = db.get_secrets().await?;
+        let consumer_key = secrets.pocket_consumer_key.expect("Consumer key not found in the database, consider generating one from https://getpocket.com/developer/apps/new and run 'pocket auth'");
+        let access_token = secrets
+            .pocket_access_token
+            .expect("Access token not found in the database, consider running 'pocket auth'");
+        fetch_from_pocket(db_url, consumer_key, access_token).await?;
     } else if matches.subcommand_matches("list").is_some() {
         let db = DB::init(db_url).await.map_err(|err| {
             match err {
@@ -159,7 +191,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         sqlx::Sqlite::create_database(&db_url).await?;
         let pool = sqlx::SqlitePool::connect(&db_url).await?;
         DB::migrate(&pool).await?;
-        eprintln!("Database created and migrated successfully!")
+        eprintln!("Database created and migrated successfully!");
     }
 
     Ok(())
