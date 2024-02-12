@@ -91,6 +91,18 @@ Options:
   -h, --help  Print help
 ```
 
+### Fetch
+
+```sh
+Gets all data from authenticated providers
+
+Usage: research fetch
+
+Options:
+  -h, --help  Print help
+```
+
+
 ### Generate
 
 ```sh
@@ -114,6 +126,7 @@ available in your `$PATH`
 
 ```sh
 $ research init # initializes the database
-$ research pocket fetch # fetch your pocket data
+$ research pocket auth # authenticate with pocket
+$ research fetch # fetches your articles
 $ research --db ./research.sqlite generate . --assets ./assets  # generate your site
 ```
