@@ -93,9 +93,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .get_one::<String>("access")
                 .expect("Required access token")
                 .to_string();
-            fetch_from_pocket(&db_url, consumer_key, access_token).await?;
+            fetch_from_pocket(db_url, consumer_key, access_token).await?;
         }
-    } else if let Some(_) = matches.subcommand_matches("fetch") {
+    } else if matches.subcommand_matches("fetch").is_some() {
         unimplemented!(
             "Fetch from all sources is not implemented yet! Please use 'pocket fetch' for now."
         )
