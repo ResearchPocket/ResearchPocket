@@ -56,8 +56,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             Command::new("generate")
                 .about("Generate a static site")
                 .args(&[
-                    arg!(path: [PATH]).index(1).required(true),
-                    arg!(--assets <ASSETS_DIR> "Path to site assets (main.css, search.js)").required(true),
+                    arg!(output: [PATH] "The path to the output directory").index(1).required(true),
+                    arg!(--assets <ASSETS_DIR> "Path to site assets (main.css, search.js) RELATIVE to the output directory")
+                        .default_value("./assets"),
                 ]),
         )
         .args(&[
@@ -112,7 +113,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             fetch_from_pocket(db_url, consumer_key, access_token).await?;
         }
     } else if matches.subcommand_matches("fetch").is_some() {
-        let db = DB::init(&db_url).await.map_err(|err| {
+        let db = DB::init(db_url).await.map_err(|err| {
             match err {
                 sqlx::Error::Database(..) => {
                     eprintln!("Database not found");
@@ -150,11 +151,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("{:?}", item);
         }
     } else if let Some(matches) = matches.subcommand_matches("generate") {
-        let site_path = matches.get_one::<String>("path").unwrap();
+        let site_path = matches.get_one::<String>("output").unwrap();
         let site_path = Path::new(&site_path);
 
         let assets_dir = matches.get_one::<String>("assets").unwrap();
-        let assets_dir = Path::new(&assets_dir).to_str().expect("Invalid assets dir");
+        let assets_dir = site_path.join(assets_dir);
+
+        {
+            let dir = site_path.join(assets_dir.clone());
+            metadata(&dir)
+                .await
+                .unwrap_or_else(|_| panic!("Invalid assets directory: {:?}", dir));
+        }
+
+        let assets_dir = assets_dir.to_str().unwrap().to_owned();
 
         let db = DB::init(db_url).await.map_err(|err| {
             eprintln!("Please set the corrdct database path with --db");
@@ -163,7 +173,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let tags = db.get_all_tags().await?;
         let item_tags = db.get_all_item_tags().await?;
 
-        let site = Site::build(&tags, &item_tags, assets_dir)?;
+        let site = Site::build(&tags, &item_tags, &assets_dir)?;
 
         metadata(&Path::new(&assets_dir).join("search.js"))
             .await
