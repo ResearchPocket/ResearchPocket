@@ -37,86 +37,17 @@ terminal
   <img alt="Hashnode logo" src="./.github/explainer.png" >
 </picture>
 
-## Cli
+## Installation
 
-```sh
-RESEARCH 🔖
+- Get the latest release binary for your desktop
+  through the [releases page](https://github.com/KorigamiK/ResearchPocket/releases)
 
-Manage your reading lists and generate a static site with your saved articles.
-
-Usage: research [OPTIONS] [COMMAND]
-
-Commands:
-  pocket    Pocket related actions
-  fetch     Gets all data from authenticated providers
-  list      Lists all items in the database
-  init      Initializes the database
-  generate  Generate a static site
-  help      Print this message or the help of the given subcommand(s)
-
-Options:
-      --db <DB_URL>  Database url [env: DATABASE_URL=] [default: ./research.sqlite]
-  -d, --debug...     Turn debugging information on
-  -h, --help         Print help
-  -V, --version      Print version
-```
-
-### Init
-
-```sh
-Initializes the database
-
-Usage: research init <PATH>
-
-Arguments:
-  <PATH>  
-
-Options:
-  -h, --help  Print help
-```
-
-### Pocket
-
-```sh
-Pocket related actions
-
-Usage: research pocket [COMMAND]
-
-Commands:
-  auth   Authenticate using a consumer key
-  fetch  Fetch items from pocket
-  help   Print this message or the help of the given subcommand(s)
-
-Options:
-  -h, --help  Print help
-```
-
-### Fetch
-
-```sh
-Gets all data from authenticated providers
-
-Usage: research fetch
-
-Options:
-  -h, --help  Print help
-```
+- Using Cargo
+  ```sh
+  $ cargo install research
+  ```
 
 
-### Generate
-
-```sh
-Generate a static site
-
-Usage: research generate --assets <ASSETS_DIR> <PATH>
-
-Arguments:
-  <PATH>  
-
-Options:
-      --assets <ASSETS_DIR>  Path to site assets (main.css, search.js)
-  -h, --help                 Print help
-```
 
 ## Generate your site
 
@@ -128,5 +59,88 @@ available in your `$PATH`
 $ research init # initializes the database
 $ research pocket auth # authenticate with pocket
 $ research fetch # fetches your articles
-$ research --db ./research.sqlite generate . --assets ./assets  # generate your site
+$ research --db ./research.sqlite generate . # generate your site
 ```
+
+## Cli help
+
+- Basic Help
+
+  ```sh
+  RESEARCH 🔖
+
+  Manage your reading lists and generate a static site with your saved articles.
+
+  Usage: research [OPTIONS] [COMMAND]
+
+  Commands:
+    pocket    Pocket related actions
+    fetch     Gets all data from authenticated providers
+    list      Lists all items in the database
+    init      Initializes the database
+    generate  Generate a static site
+    help      Print this message or the help of the given subcommand(s)
+
+  Options:
+        --db <DB_URL>  Database url [env: DATABASE_URL=] [default: ./research.sqlite]
+    -d, --debug...     Turn debugging information on
+    -h, --help         Print help
+    -V, --version      Print version
+  ```
+
+- Init
+
+  ```sh
+  Initializes the database
+
+  Usage: research init <PATH>
+
+  Arguments:
+    <PATH>  
+
+  Options:
+    -h, --help  Print help
+  ```
+
+- Pocket
+
+  ```sh
+  Pocket related actions
+
+  Usage: research pocket [COMMAND]
+
+  Commands:
+    auth   Authenticate using a consumer key
+    fetch  Fetch items from pocket
+    help   Print this message or the help of the given subcommand(s)
+
+  Options:
+    -h, --help  Print help
+  ```
+
+- Fetch
+
+  ```sh
+  Gets all data from authenticated providers
+
+  Usage: research fetch
+
+  Options:
+    -h, --help  Print help
+  ```
+
+
+- Generate
+
+  ```sh
+  Generate a static site
+
+  Usage: research generate [OPTIONS] <PATH>
+
+  Arguments:
+    <PATH>  The path to the output directory
+
+  Options:
+        --assets <ASSETS_DIR>  Path to site assets (main.css, search.js) RELATIVE to the output directory [default: ./assets]
+    -h, --help                 Print help
+  ```
