@@ -59,6 +59,7 @@ available in your `$PATH`
 $ research init # initializes the database
 $ research pocket auth # authenticate with pocket
 $ research fetch # fetches your articles
+$ # add --download-tailwind if you don't have tailwindcss installed in your $PATH
 $ research --db ./research.sqlite generate . # generate your site
 ```
 
@@ -142,5 +143,6 @@ $ research --db ./research.sqlite generate . # generate your site
 
   Options:
         --assets <ASSETS_DIR>  Path to site assets (main.css, search.js) RELATIVE to the output directory [default: ./assets]
+        --download-tailwind    Download Tailwind binary to <ASSETS_DIR>/tailwindcss if not found
     -h, --help                 Print help
   ```

@@ -59,6 +59,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     arg!(output: [PATH] "The path to the output directory").index(1).required(true),
                     arg!(--assets <ASSETS_DIR> "Path to site assets (main.css, search.js) RELATIVE to the output directory")
                         .default_value("./assets"),
+                    clap::Arg::new("tailwind")
+                        .long("download-tailwind")
+                        .help("Download Tailwind binary to <ASSETS_DIR>/tailwindcss if not found")
+                        .action(clap::ArgAction::SetTrue)
                 ]),
         )
         .args(&[
@@ -182,7 +186,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let input_css = &Path::new(&assets_dir).join("main.css");
         metadata(input_css).await.expect("Missing main.css");
 
-        build_css(input_css)?;
+        let download_tailwind = matches.get_flag("tailwind");
+        build_css(input_css, download_tailwind).await?;
 
         eprintln!("Site path: {site_path:?}");
         let mut index = File::create(site_path.join("index.html")).await?;
