@@ -1,6 +1,5 @@
 /** @typedef {import("fuse.js").Fuse} Fuse */
 
-
 /**
  * @typedef item_tag
  * @property {string[]} tags
@@ -57,7 +56,7 @@ searchBtn.addEventListener("click", () => {
     ).join("");
 
     itemElement.innerHTML = `
-<h3 class="text-lg font-bold">${item.title}</h3>
+<h3 class="text-lg font-bold break-words">${item.title}</h3>
 <ul class="inline-flex flex-wrap gap-2" >
 ${tagsHtml}
 </ul>

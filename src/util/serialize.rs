@@ -70,7 +70,7 @@ where
 }
 
 fn map_to_vec<T>(map: std::collections::BTreeMap<String, T>) -> Vec<T> {
-    map.into_iter().map(|(_, v)| v).collect::<Vec<_>>()
+    map.into_values().collect::<Vec<_>>()
 }
 pub fn bool_from_int_string<'de, D>(deserializer: D) -> Result<bool, D::Error>
 where

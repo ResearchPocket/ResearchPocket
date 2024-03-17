@@ -195,8 +195,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let mut search = File::create(site_path.join("search.html")).await?;
         search.write_all(site.search_html.as_bytes()).await?;
-    }
-    if let Some(matches) = matches.subcommand_matches("init") {
+    } else if let Some(matches) = matches.subcommand_matches("init") {
         let db_path = matches.get_one::<String>("path").expect("Database path");
         let db_url = {
             let path = Path::new(&db_path).join("research.sqlite");

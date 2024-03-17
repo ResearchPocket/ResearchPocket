@@ -24,7 +24,7 @@
         <ul class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           <% for (tags, item) in item_tags { %>
           <li style="background-color:#eee" class="p-2 rounded flex flex-col gap-2">
-            <h3 class="text-lg font-bold"> <%=&item.title%> </h3>
+            <h3 class="text-lg font-bold break-words"> <%=&item.title%> </h3>
             <p><%=&item.format_time_added()%></p>
             <ul class="inline-flex flex-wrap gap-2" >
               <% for tag in tags { %>
