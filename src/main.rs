@@ -72,6 +72,7 @@ async fn handle_pocket_command(
             };
             let secrets = provider.authenticate().await?;
             db.set_secret(secrets).await?;
+            println!("Success: Access token saved to the database! You can now run `pocket fetch` to fetch items from Pocket.")
         }
         PocketCommands::Fetch(FetchArgs { key, access }) => {
             // Handle fetching items from Pocket with the provided keys
@@ -128,11 +129,10 @@ async fn handle_list_command(cli_args: &CliArgs) -> Result<(), Box<dyn std::erro
 }
 
 async fn handle_init_command(
-    path: &str,
+    db_path: &str,
     _cli_args: &CliArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Handle initializing the database at the provided path
-    let db_path = path;
     let db_url = {
         let path = Path::new(&db_path).join("research.sqlite");
         path.to_str().expect("Invalid db path").to_owned()

@@ -31,8 +31,10 @@
               <li class="pointer p-2 rounded" style="background-color:#ccf"><%= tag.tag_name %></li>
               <% } %>
             </ul>
-            <p class="break-words"><%=&item.excerpt%></p>
-            <a href="<%=&item.uri%>" target="_blank" class="text-blue-500 hover:underline">Read more</a>
+            <a href="<%=&item.uri%>" target="_blank">
+              <p class="break-words"><%=&item.excerpt%></p>
+              <span class="text-blue-500 hover:underline">Read more</span>
+            </a>
           </li>
           <% } %>
       </main>

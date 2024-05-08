@@ -48,7 +48,7 @@ pub enum Subcommands {
         #[arg(long, default_value = "./assets")]
         assets: String,
 
-        /// Download Tailwind binary to <ASSETS_DIR>/tailwindcss if not found
+        /// Download Tailwind binary to <ASSETS>/tailwindcss if not found
         #[arg(long, action = clap::ArgAction::SetTrue)]
         download_tailwind: bool,
     },

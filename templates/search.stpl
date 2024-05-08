@@ -15,10 +15,10 @@
       </header>
       <main>
         <div class="max-w-xl mx-auto">
-          <div class="flex mb-4 gap-4">
+          <form class="flex mb-4 gap-4" onsubmit="event.preventDefault(); handleSearch(); return false">
             <input type="text" id="searchInput" placeholder="Enter tags or excerpt..." class="flex-grow p-2 border rounded-l">
             <button id="searchBtn" class="bg-blue-500 text-white px-4 py-2 rounded-r">Search</button>
-          </div>
+          </form>
           <ul id="resultsContainer" class="space-y-4"></ul>
         </div>
       </main>

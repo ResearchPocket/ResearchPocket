@@ -40,7 +40,7 @@ const searchBtn = document.getElementById("searchBtn");
 const searchInput = document.getElementById("searchInput");
 const resultsContainer = document.getElementById("resultsContainer");
 
-searchBtn.addEventListener("click", () => {
+function handleSearch() {
   const searchQuery = searchInput.value;
   const matchedItems = searchItems(searchQuery);
 
@@ -60,9 +60,11 @@ searchBtn.addEventListener("click", () => {
 <ul class="inline-flex flex-wrap gap-2" >
 ${tagsHtml}
 </ul>
+<a href="${item.uri}" target="_blank">
 <p class="break-words">${item.excerpt || "No excerpt available"}</p>
-<a href="${item.uri}" target="_blank" class="text-blue-500 hover:underline">Read more</a>
+<span class="text-blue-500 hover:underline">Read more</span>
+</a>
 `;
     resultsContainer.appendChild(itemElement);
   });
-});
+}
