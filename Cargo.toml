@@ -13,8 +13,8 @@ description = "Manage your reading lists and generate a static site with your sa
 
 [dependencies]
 chrono = "0.4"
-clap = { version = "4.4", features = ["cargo", "env"] }
-reqwest = { version = "0.11", features = ["json"] }
+clap = { version = "4.5", features = ["cargo", "env", "derive"] }
+reqwest = { version = "0.12.4", features = ["json"] }
 sailfish = { version = "0.8", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
