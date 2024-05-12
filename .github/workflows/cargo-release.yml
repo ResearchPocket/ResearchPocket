@@ -5,7 +5,7 @@
 # - go to Actions > PublishRelease
 # - click the Run Workflow dropdown in the top-right
 # - enter the tag of the release as “Release Tag” (e.g. v0.3.18)
-name: PublishRelease
+name: Cargo Release
 
 on:
   workflow_dispatch:
