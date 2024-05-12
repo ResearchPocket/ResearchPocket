@@ -7,8 +7,9 @@
 <br />
 <div align="center">
   <!-- Github Actions -->
-  <a href="https://github.com/korigamik/ResearchPocket/actions/workflows/ci-builds.yml?query=branch%3Amain">
-    <img src="https://img.shields.io/github/actions/workflow/status/KorigamiK/ResearchPocket/ci-builds.yml?branch=main&style=flat-square" alt="actions status" /></a>
+  <a href="https://github.com/KorigamiK/ResearchPocket/actions/workflows/ci-biulds.yml">
+    <img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/KorigamiK/ResearchPocket/ci-biulds.yml">
+  </a>
   <!-- Version -->
   <a href="https://crates.io/crates/research">
     <img src="https://img.shields.io/crates/v/research.svg?style=flat-square" alt="Crates.io version" />
