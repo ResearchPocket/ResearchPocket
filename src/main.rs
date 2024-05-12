@@ -6,7 +6,7 @@ use db::DB;
 use site::Site;
 use sqlx::migrate::MigrateDatabase;
 use std::path::Path;
-use tokio::fs::{metadata, File};
+use tokio::fs::{create_dir, metadata, File, read_to_string};
 use tokio::io::AsyncWriteExt;
 
 mod assets;
@@ -146,26 +146,26 @@ async fn handle_init_command(
 }
 
 async fn handle_generate_command(
-    output: &str,
-    assets: &str,
+    output_dir: &str,
+    assets_dir: &str,
     download_tailwind: bool,
     cli_args: &CliArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Handle generating a static site with the provided options
-    let site_path = output;
-    let site_path = Path::new(&site_path);
-
-    let assets_dir = assets;
-    let assets_dir = site_path.join(assets_dir);
-
-    {
-        let dir = site_path.join(assets_dir.clone());
-        metadata(&dir)
+    metadata(&assets_dir)
+        .await
+        .unwrap_or_else(|_| panic!("Invalid assets directory: {assets_dir}"));
+    const REQUIRED_FILES: [&str; 3] = ["main.css", "search.js", "tailwind.config.js"];
+    for file in REQUIRED_FILES {
+        metadata(&Path::new(&assets_dir).join(file))
             .await
-            .unwrap_or_else(|_| panic!("Invalid assets directory: {:?}", dir));
+            .unwrap_or_else(|_| panic!("Missing required file: {file}"));
     }
 
-    let assets_dir = assets_dir.to_str().unwrap().to_owned();
+    let output_dir = Path::new(output_dir);
+    if !output_dir.exists() {
+        create_dir(output_dir).await?;
+    }
 
     let db = DB::init(&cli_args.db).await.map_err(|err| {
         eprintln!("Please set the corrdct database path with --db");
@@ -174,22 +174,25 @@ async fn handle_generate_command(
     let tags = db.get_all_tags().await?;
     let item_tags = db.get_all_item_tags().await?;
 
-    let site = Site::build(&tags, &item_tags, &assets_dir)?;
+    let site = Site::build(&tags, &item_tags, "./assets")?;
 
-    metadata(&Path::new(&assets_dir).join("search.js"))
-        .await
-        .expect("Missing search.js");
+    build_css(
+        &Path::new(assets_dir).join("main.css"),
+        &Path::new(assets_dir).join("tailwind.config.js"),
+        &Path::new(output_dir).join("assets").join("dist.css"),
+        download_tailwind,
+    )
+    .await?;
 
-    let input_css = &Path::new(&assets_dir).join("main.css");
-    metadata(input_css).await.expect("Missing main.css");
+    let search_js = Path::new(assets_dir).join("search.js");
+    let mut search = File::create(output_dir.join("assets").join("search.js")).await?;
+    search.write_all(read_to_string(&search_js).await?.as_bytes()).await?;
 
-    build_css(input_css, download_tailwind).await?;
-
-    eprintln!("Site path: {site_path:?}");
-    let mut index = File::create(site_path.join("index.html")).await?;
+    eprintln!("Output directory: {output_dir:?}");
+    let mut index = File::create(output_dir.join("index.html")).await?;
     index.write_all(site.index_html.as_bytes()).await?;
 
-    let mut search = File::create(site_path.join("search.html")).await?;
+    let mut search = File::create(output_dir.join("search.html")).await?;
     search.write_all(site.search_html.as_bytes()).await?;
     Ok(())
 }

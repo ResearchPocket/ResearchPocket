@@ -29,3 +29,4 @@ research.sqlite
 research.sqlite-shm
 research.sqlite-wal
 assets/tailwindcss
+/generated

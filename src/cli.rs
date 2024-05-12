@@ -44,7 +44,7 @@ pub enum Subcommands {
         #[arg(index = 1, required = true)]
         output: String,
 
-        /// Path to site assets (main.css, search.js) RELATIVE to the output directory
+        /// Path to required site assets (main.css, search.js, tailwind.config.js)
         #[arg(long, default_value = "./assets")]
         assets: String,
 

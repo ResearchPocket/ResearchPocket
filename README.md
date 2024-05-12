@@ -39,15 +39,13 @@ terminal
 
 ## Installation
 
-- Get the latest release binary for your desktop
-  through the [releases page](https://github.com/KorigamiK/ResearchPocket/releases)
+- Get the latest release binary for your desktop through the
+  [releases page](https://github.com/KorigamiK/ResearchPocket/releases)
 
 - Using Cargo
   ```sh
   $ cargo install research
   ```
-
-
 
 ## Generate your site
 
@@ -130,19 +128,27 @@ $ research --db ./research.sqlite generate . # generate your site
     -h, --help  Print help
   ```
 
-
 - Generate
 
+  Here's an example of how to generate a static site:
+
   ```sh
-  Generate a static site
+  $ research --db <path/to/research.sqlite> generate --assets <path/to/assets> <path/to/output>
+  ```
 
-  Usage: research generate [OPTIONS] <PATH>
+  Optionally add `--download-tailwind` to download and reuse the `tailwindcss`
+  binary in the assets directory.
 
-  Arguments:
-    <PATH>  The path to the output directory
+  ```sh
+    Generate a static site
 
-  Options:
-        --assets <ASSETS_DIR>  Path to site assets (main.css, search.js) RELATIVE to the output directory [default: ./assets]
-        --download-tailwind    Download Tailwind binary to <ASSETS_DIR>/tailwindcss if not found
-    -h, --help                 Print help
+    Usage: research generate [OPTIONS] <OUTPUT>
+
+    Arguments:
+      <OUTPUT>  The path to the output directory
+
+    Options:
+          --assets <ASSETS>    Path to required site assets (main.css, search.js, tailwind.config.js) [default: ./assets]
+          --download-tailwind  Download Tailwind binary to <ASSETS>/tailwindcss if not found
+      -h, --help               Print help
   ```
