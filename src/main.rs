@@ -6,7 +6,7 @@ use db::DB;
 use site::Site;
 use sqlx::migrate::MigrateDatabase;
 use std::path::Path;
-use tokio::fs::{create_dir, metadata, File, read_to_string};
+use tokio::fs::{create_dir, metadata, read_to_string, File};
 use tokio::io::AsyncWriteExt;
 
 mod assets;
@@ -176,6 +176,13 @@ async fn handle_generate_command(
 
     let site = Site::build(&tags, &item_tags, "./assets")?;
 
+    eprintln!("Output directory: {output_dir:?}");
+    let mut index = File::create(output_dir.join("index.html")).await?;
+    index.write_all(site.index_html.as_bytes()).await?;
+
+    let mut search = File::create(output_dir.join("search.html")).await?;
+    search.write_all(site.search_html.as_bytes()).await?;
+
     build_css(
         &Path::new(assets_dir).join("main.css"),
         &Path::new(assets_dir).join("tailwind.config.js"),
@@ -186,14 +193,10 @@ async fn handle_generate_command(
 
     let search_js = Path::new(assets_dir).join("search.js");
     let mut search = File::create(output_dir.join("assets").join("search.js")).await?;
-    search.write_all(read_to_string(&search_js).await?.as_bytes()).await?;
+    search
+        .write_all(read_to_string(&search_js).await?.as_bytes())
+        .await?;
 
-    eprintln!("Output directory: {output_dir:?}");
-    let mut index = File::create(output_dir.join("index.html")).await?;
-    index.write_all(site.index_html.as_bytes()).await?;
-
-    let mut search = File::create(output_dir.join("search.html")).await?;
-    search.write_all(site.search_html.as_bytes()).await?;
     Ok(())
 }
 
