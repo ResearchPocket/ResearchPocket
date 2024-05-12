@@ -2,7 +2,6 @@
 <html lang="en">
   <head>
     <% include!("./components/header.stpl"); %>
-    <script src="https://cdn.jsdelivr.net/npm/fuse.js@7.0.0"></script>
   </head>
   <body>
     <% include!("./components/item_tags.stpl"); %>
@@ -15,7 +14,7 @@
       </header>
       <main>
         <div class="max-w-xl mx-auto">
-          <form class="flex mb-4 gap-4" onsubmit="event.preventDefault(); handleSearch(); return false">
+          <form class="flex mb-4 gap-4" id="searchForm">
             <input type="text" id="searchInput" placeholder="Enter tags or excerpt..." class="flex-grow p-2 border rounded-l">
             <button id="searchBtn" class="bg-blue-500 text-white px-4 py-2 rounded-r">Search</button>
           </form>
@@ -24,7 +23,7 @@
       </main>
     </div>
 
-    <script src="<%= assets_dir %>/search.js"></script>
+    <script type="module" src="<%= assets_dir %>/search.js"></script>
 
   </body>
 </html>

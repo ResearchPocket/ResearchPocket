@@ -1,16 +1,5 @@
-/** @typedef {import("fuse.js").Fuse} Fuse */
-
-/**
- * @typedef item_tag
- * @property {string[]} tags
- * @property {number} id
- * @property {string} uri
- * @property {string} title
- * @property {string} excerpt
- * @property {number} time_added
- * @property {boolean} favorite
- * @property {string} lang
- */
+/// <reference types="./types.d.ts" />
+import Fuse from "https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.mjs";
 
 const options = {
   includeScore: true,
@@ -18,9 +7,6 @@ const options = {
   logicalOperator: "or",
   useExtendedSearch: true,
 };
-
-/** @type {item_tag[]} */
-var item_tags;
 
 const fuse = new Fuse(item_tags, options);
 
@@ -30,17 +16,24 @@ const fuse = new Fuse(item_tags, options);
  */
 function searchItems(searchQuery) {
   const tags = searchQuery.split(",").map((tag) => tag.trim());
-  const pattern = tags.map((tag) => `'${tag}`).join("|");
+  const pattern = tags.map(/** @param {string} tag */ (tag) => `'${tag}`).join(
+    "|",
+  );
   const results = fuse.search(pattern);
 
-  return results.map((result) => result.item);
+  return results.map(/** @param {{item: item_tag}} result */ (result) =>
+    result.item
+  );
 }
 
-const searchBtn = document.getElementById("searchBtn");
 const searchInput = document.getElementById("searchInput");
 const resultsContainer = document.getElementById("resultsContainer");
 
-function handleSearch() {
+/**
+ * @param {Event} e
+ */
+function handleSearch(e) {
+  e.preventDefault();
   const searchQuery = searchInput.value;
   const matchedItems = searchItems(searchQuery);
 
@@ -67,4 +60,10 @@ ${tagsHtml}
 `;
     resultsContainer.appendChild(itemElement);
   });
+  return false;
 }
+
+document.getElementById("searchForm").addEventListener(
+  "submit",
+  handleSearch,
+);
