@@ -65,7 +65,6 @@ async fn handle_pocket_command(
                 err
             })?;
 
-            println!("consumer_key: {key:?}");
             let provider = ProviderPocket {
                 consumer_key: key.to_string(),
                 ..Default::default()
