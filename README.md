@@ -7,7 +7,7 @@
 <br />
 <div align="center">
   <!-- Github Actions -->
-  <a href="https://github.com/KorigamiK/ResearchPocket/actions/workflows/ci-biulds.yml">
+  <a href="https://github.com/ResearchPocket/ResearchPocket/actions/workflows/ci-biulds.yml">
     <img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/KorigamiK/ResearchPocket/ci-biulds.yml">
   </a>
   <!-- Version -->
@@ -29,6 +29,9 @@
 A self-hostable save-it-later tool that integrates with
 [getpocket.com](https://getpocket.com) (and others soon). works on the web and
 terminal
+
+> Create your own static site on GitHub pages
+[ResearchPocket/my-list](https://github.com/ResearchPocket/my-list) 📚
 
 ## How it works
 
