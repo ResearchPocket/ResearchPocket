@@ -25,7 +25,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             command: pocket_command,
         }) => handle_pocket_command(pocket_command, &cli_args).await?,
         Some(Subcommands::Fetch) => handle_fetch_command(&cli_args).await?,
-        Some(Subcommands::List) => handle_list_command(&cli_args).await?,
+        Some(Subcommands::List { tag }) => handle_list_command(&cli_args, tag.as_ref()).await?,
         Some(Subcommands::Init { path }) => handle_init_command(path, &cli_args).await?,
         Some(Subcommands::Generate {
             output,
@@ -105,7 +105,10 @@ async fn handle_fetch_command(cli_args: &CliArgs) -> Result<(), Box<dyn std::err
     Ok(())
 }
 
-async fn handle_list_command(cli_args: &CliArgs) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_list_command(
+    cli_args: &CliArgs,
+    tags: Option<&Vec<String>>,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Handle listing items in the database
     let db = DB::init(&cli_args.db).await.map_err(|err| {
         match err {
@@ -120,9 +123,19 @@ async fn handle_list_command(cli_args: &CliArgs) -> Result<(), Box<dyn std::erro
         }
         err
     })?;
-    let items = db.get_all_items().await?;
-    for item in items {
-        println!("{:?}", item);
+    if let Some(tags) = tags {
+        let items = db.get_items_by_tags(tags).await?;
+        println!("Tags: {:?}", tags);
+        println!("Items: {:?}", items.len());
+        for item in items {
+            println!("{:?}", item);
+        }
+    } else {
+        let items = db.get_all_items().await?;
+        println!("Items: {:?}", items.len());
+        for item in items {
+            println!("{:?}", item);
+        }
     }
     Ok(())
 }

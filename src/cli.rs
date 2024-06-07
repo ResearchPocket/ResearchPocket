@@ -27,7 +27,12 @@ pub enum Subcommands {
     Fetch,
 
     /// Lists all items in the database
-    List,
+    List {
+        /// Filter by tags separated by commas
+        /// Example: --tag rust,sql
+        #[clap(short, long, value_delimiter = ',', num_args = 1.. )]
+        tag: Option<Vec<String>>,
+    },
 
     /// Initializes the database
     #[command(arg_required_else_help = true)]

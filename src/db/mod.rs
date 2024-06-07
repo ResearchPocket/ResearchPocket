@@ -122,6 +122,22 @@ impl DB {
             .await
     }
 
+    pub async fn get_items_by_tags(
+        &self,
+        tags: &Vec<String>,
+    ) -> Result<Vec<ResearchItem>, sqlx::Error> {
+        let query = format!(
+            "SELECT items.* FROM items JOIN item_tags ON items.id = item_tags.item_id WHERE item_tags.tag_name IN ({}) GROUP BY items.id HAVING COUNT(DISTINCT item_tags.tag_name) = {}",
+            tags.iter().map(|t| format!("'{}'", t)).collect::<Vec<_>>().join(", "),
+            tags.len()
+        );
+
+        let items = sqlx::query_as::<_, ResearchItem>(&query)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(items)
+    }
+
     pub async fn get_item_tags(&self, item_id: i64) -> Result<Vec<Tags>, sqlx::Error> {
         sqlx::query_as::<_, Tags>("SELECT tag_name FROM item_tags WHERE item_id = ?")
             .bind(item_id)
