@@ -93,18 +93,25 @@ pub enum PocketCommands {
 
 #[derive(Args)]
 pub struct AddArgs {
-    /// Location URI of the document to store
-    pub loc: String,
-    /// Title of the document
+    /// URI (link) of the item (required)
+    pub uri: String,
+
+    /// Title of the item
     pub title: Option<String>,
-    /// Excerpt of the document
+
+    /// Excerpt of the item
     pub excerpt: Option<String>,
+
+    /// Tags to associate with the item (comma separated)
     #[clap(short, long, value_delimiter = ',', num_args = 1.. )]
     pub tag: Option<Vec<String>>,
 }
 
 #[derive(Subcommand)]
 pub enum LocalCommands {
+    /// Add an item to the local provider in the database
     Add(AddArgs),
+
+    /// List all items in the local provider
     List,
 }

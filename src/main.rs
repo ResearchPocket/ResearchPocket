@@ -66,12 +66,12 @@ async fn handle_local_command(
     let provider_id = db.get_provider_id("local").await?;
     match command {
         LocalCommands::Add(AddArgs {
-            loc,
+            uri,
             tag,
             title,
             excerpt,
         }) => {
-            println!("{loc} {title:?} {excerpt:?} {tag:?}");
+            println!("{uri} {title:?} {excerpt:?} {tag:?}");
             let tags: Vec<Tags> = tag.as_ref().map_or(Vec::new(), |tags| {
                 tags.iter()
                     .map(|tag| Tags {
@@ -82,7 +82,7 @@ async fn handle_local_command(
 
             let local_item = LocalItem {
                 id: None,
-                location: loc.to_string(),
+                uri: uri.to_string(),
                 title: title.as_ref().cloned(),
                 excerpt: excerpt.as_ref().cloned(),
                 time_added: chrono::Utc::now().timestamp(),
