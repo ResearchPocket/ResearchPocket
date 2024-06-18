@@ -23,6 +23,11 @@ pub enum Subcommands {
         command: PocketCommands,
     },
 
+    Local {
+        #[clap(subcommand)]
+        command: LocalCommands,
+    },
+
     /// Gets all data from authenticated providers
     Fetch,
 
@@ -84,4 +89,22 @@ pub enum PocketCommands {
 
     /// Fetch items from pocket
     Fetch(FetchArgs),
+}
+
+#[derive(Args)]
+pub struct AddArgs {
+    /// Location URI of the document to store
+    pub loc: String,
+    /// Title of the document
+    pub title: Option<String>,
+    /// Excerpt of the document
+    pub excerpt: Option<String>,
+    #[clap(short, long, value_delimiter = ',', num_args = 1.. )]
+    pub tag: Option<Vec<String>>,
+}
+
+#[derive(Subcommand)]
+pub enum LocalCommands {
+    Add(AddArgs),
+    List,
 }
