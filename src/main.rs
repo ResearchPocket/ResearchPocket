@@ -37,8 +37,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("Please provide a subcommand");
             eprintln!("Run with --help for more information");
         }
+        Some(Subcommands::Export { raindrop }) => {
+            if *raindrop {
+                let db = DB::init(&cli_args.db).await.map_err(|err| {
+                    match err {
+                        sqlx::Error::Database(..) => {
+                            eprintln!("Database not found");
+                            eprintln!("Please set the database corrdct path with --db");
+                            eprintln!(
+                                "Or consider initializing the database with the 'init' command"
+                            );
+                        }
+                        _ => {
+                            eprintln!("Unknown error: {err:?}");
+                        }
+                    }
+                    err
+                })?;
+                db.export_to_csv("raindrop_export.csv").await?;
+                println!("Exported to raindrop_export.csv");
+            }
+        }
     }
-
     Ok(())
 }
 

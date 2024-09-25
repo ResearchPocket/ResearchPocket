@@ -30,3 +30,4 @@ research.sqlite-shm
 research.sqlite-wal
 assets/tailwindcss
 /generated
+raindrop_export.csv

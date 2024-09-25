@@ -57,6 +57,13 @@ pub enum Subcommands {
         #[arg(long, action = clap::ArgAction::SetTrue)]
         download_tailwind: bool,
     },
+
+    #[command(arg_required_else_help = true)]
+    Export {
+        /// Export currnt database to csv for import into `raindrop.io`
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        raindrop: bool,
+    },
 }
 
 #[derive(Args)]
