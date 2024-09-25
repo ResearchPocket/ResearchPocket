@@ -1,8 +1,9 @@
 use crate::assets::css::build_css;
-use crate::provider::{Insertable, Provider, ProviderPocket};
+use crate::provider::{Insertable, OnlineProvider, ProviderPocket};
 use clap::Parser;
-use cli::{AuthArgs, CliArgs, FetchArgs, PocketCommands, Subcommands};
-use db::DB;
+use cli::{AddArgs, AuthArgs, CliArgs, FetchArgs, LocalCommands, PocketCommands, Subcommands};
+use db::{Tags, DB};
+use provider::local::LocalItem;
 use site::Site;
 use sqlx::migrate::MigrateDatabase;
 use std::path::Path;
@@ -22,9 +23,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli_args = CliArgs::parse();
 
     match &cli_args.subcommand {
-        Some(Subcommands::Pocket {
-            command: pocket_command,
-        }) => handle_pocket_command(pocket_command, &cli_args).await?,
+        Some(Subcommands::Pocket { command }) => {
+            handle_pocket_command(command, &cli_args).await?
+        }
+        Some(Subcommands::Local { command }) => {
+            handle_local_command(command, &cli_args).await?
+        }
         Some(Subcommands::Fetch) => handle_fetch_command(&cli_args).await?,
         Some(Subcommands::List { tag }) => handle_list_command(&cli_args, tag.as_ref()).await?,
         Some(Subcommands::Init { path }) => handle_init_command(path, &cli_args).await?,
@@ -71,6 +75,64 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             eprintln!("No subcommand provided");
             eprintln!("Please provide a subcommand");
             eprintln!("Run with --help for more information");
+        }
+    }
+    Ok(())
+}
+
+async fn handle_local_command(
+    command: &LocalCommands,
+    cli_args: &CliArgs,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let db = DB::init(&cli_args.db).await.map_err(|err| {
+        match err {
+            sqlx::Error::Database(..) => {
+                eprintln!("Database not found");
+                eprintln!("Please set the database corrdct path with --db");
+                eprintln!("Or consider initializing the database with the 'init' command");
+            }
+            _ => {
+                eprintln!("Unknown error: {err:?}");
+            }
+        }
+        err
+    })?;
+    let provider_id = db.get_provider_id("local").await?;
+    match command {
+        LocalCommands::Add(AddArgs {
+            uri,
+            tag,
+            title,
+            excerpt,
+        }) => {
+            println!("{uri} {title:?} {excerpt:?} {tag:?}");
+            let tags: Vec<Tags> = tag.as_ref().map_or(Vec::new(), |tags| {
+                tags.iter()
+                    .map(|tag| Tags {
+                        tag_name: tag.clone(),
+                    })
+                    .collect()
+            });
+
+            let local_item = LocalItem {
+                id: None,
+                uri: uri.to_string(),
+                title: title.as_ref().cloned(),
+                excerpt: excerpt.as_ref().cloned(),
+                time_added: chrono::Utc::now().timestamp(),
+                tags: tags.clone(),
+            };
+
+            db.insert_item(local_item.to_research_item(), &tags, provider_id)
+                .await?;
+            println!("Inserted document successfully!");
+        }
+        LocalCommands::List => {
+            let items = db.get_all_items_by_provider(provider_id).await?;
+            println!("Items: {:?}", items.len());
+            for item in items {
+                println!("{:?}", item);
+            }
         }
     }
     Ok(())
@@ -158,7 +220,7 @@ async fn handle_list_command(
         err
     })?;
     if let Some(tags) = tags {
-        let items = db.get_items_by_tags(tags).await?;
+        let items = db.get_all_items_by_tags(tags).await?;
         println!("Tags: {:?}", tags);
         println!("Items: {:?}", items.len());
         for item in items {
@@ -269,7 +331,7 @@ async fn fetch_from_pocket<'a>(
         let tags = item.to_tags();
         let title = &insertable_item.title.chars().take(8).collect::<String>();
         eprint!("{:?} ", title);
-        db.insert_item(insertable_item, tags, provider_id).await?;
+        db.insert_item(insertable_item, &tags, provider_id).await?;
     }
 
     Ok(())

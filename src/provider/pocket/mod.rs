@@ -1,4 +1,4 @@
-use super::{Insertable, Provider, ResearchItem};
+use super::{Insertable, OnlineProvider, Provider, ResearchItem};
 use crate::db::{Secrets, Tags};
 use api::{get, login, PocketItem};
 
@@ -11,9 +11,7 @@ pub struct ProviderPocket {
     pub client: reqwest::Client,
 }
 
-impl Provider for ProviderPocket {
-    type Item = PocketItem;
-
+impl OnlineProvider for ProviderPocket {
     async fn authenticate(&self) -> Result<Secrets, Box<dyn std::error::Error>> {
         let access_token = login(&self.client, &self.consumer_key).await?;
         Ok(Secrets {
@@ -23,12 +21,16 @@ impl Provider for ProviderPocket {
         })
     }
 
-    async fn fetch_items(&self) -> Result<Vec<Self::Item>, Box<dyn std::error::Error>> {
+    async fn fetch_items(&self) -> Result<Vec<PocketItem>, Box<dyn std::error::Error>> {
         let access_token = self.access_token.as_ref().ok_or("Access token not found")?;
         get(access_token, &self.consumer_key, &self.client)
             .await
             .map(|items| items.to_vec())
     }
+}
+
+impl Provider for ProviderPocket {
+    type Item = PocketItem;
 }
 
 impl Insertable for PocketItem {
@@ -49,7 +51,7 @@ impl Insertable for PocketItem {
             .map_or("#".into(), |url| url.to_string());
 
         ResearchItem {
-            id: self.item_id as i64,
+            id: Some(self.item_id as i64),
             uri,
             title,
             excerpt: self.excerpt.as_ref().map_or("".to_string(), |s| s.clone()),

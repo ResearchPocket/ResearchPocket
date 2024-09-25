@@ -17,7 +17,7 @@ pub struct Tags {
 
 #[derive(Clone, FromRow, Debug, Serialize)]
 pub struct ResearchItem {
-    pub id: i64,
+    pub id: Option<i64>,
     pub uri: String,
     pub title: String,
     pub excerpt: String,
@@ -85,7 +85,7 @@ impl DB {
     pub async fn insert_item(
         &self,
         insertable_item: ResearchItem,
-        tags: Vec<Tags>,
+        tags: &[Tags],
         provider_id: i64,
     ) -> Result<(), sqlx::Error> {
         let _ = sqlx::query(
@@ -110,7 +110,7 @@ impl DB {
                 "INSERT OR IGNORE INTO item_tags (item_id, tag_name) VALUES (?, ?)",
             )
             .bind(insertable_item.id)
-            .bind(tag.tag_name)
+            .bind(&tag.tag_name)
             .execute(&self.pool)
             .await?;
         }
@@ -124,9 +124,9 @@ impl DB {
             .await
     }
 
-    pub async fn get_items_by_tags(
+    pub async fn get_all_items_by_tags(
         &self,
-        tags: &Vec<String>,
+        tags: &[String],
     ) -> Result<Vec<ResearchItem>, sqlx::Error> {
         let query = format!(
             "SELECT items.* FROM items JOIN item_tags ON items.id = item_tags.item_id WHERE item_tags.tag_name IN ({}) GROUP BY items.id HAVING COUNT(DISTINCT item_tags.tag_name) = {}",
@@ -147,14 +147,26 @@ impl DB {
             .await
     }
 
+    pub async fn get_all_items_by_provider(
+        &self,
+        provider_id: i64,
+    ) -> Result<Vec<ResearchItem>, sqlx::Error> {
+        sqlx::query_as::<_, ResearchItem>(
+            "SELECT * FROM items WHERE provider_id = ? ORDER BY time_added DESC",
+        )
+        .bind(provider_id)
+        .fetch_all(&self.pool)
+        .await
+    }
+
     pub async fn get_all_item_tags(
         &self,
     ) -> Result<Vec<(Vec<Tags>, ResearchItem)>, sqlx::Error> {
         let items = self.get_all_items().await?;
         let mut item_tags = Vec::<(Vec<Tags>, ResearchItem)>::new();
-        for item in items {
-            let tags = self.get_item_tags(item.id).await?;
-            item_tags.push((tags, item));
+        for item in items.iter().filter(|i| i.id.is_some()) {
+            let tags = self.get_item_tags(item.id.unwrap()).await?;
+            item_tags.push((tags, item.clone()));
         }
         Ok(item_tags)
     }
