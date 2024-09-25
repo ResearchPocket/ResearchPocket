@@ -196,7 +196,7 @@ impl DB {
 
         let items = self.get_all_items().await?;
         for item in items {
-            let tags = self.get_item_tags(item.id.unwrap()).await?;
+            let tags = self.get_item_tags(item.id).await?;
             let tags = tags
                 .iter()
                 .map(|t| t.tag_name.clone())

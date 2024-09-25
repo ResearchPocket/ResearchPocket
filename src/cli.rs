@@ -1,7 +1,7 @@
-use clap::{Args, Parser, Subcommand};
+use clap::{crate_authors, crate_description, crate_version, Args, Parser, Subcommand};
 
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[clap(author=crate_authors!(), version=crate_version!(), about=crate_description!(), long_about = None)]
 pub struct CliArgs {
     /// Database url
     #[arg(long, env = "DATABASE_URL", default_value = "./research.sqlite")]
@@ -58,11 +58,28 @@ pub enum Subcommands {
         download_tailwind: bool,
     },
 
+    /// Export data from the current database
     #[command(arg_required_else_help = true)]
     Export {
-        /// Export currnt database to csv for import into `raindrop.io`
+        /// Export current database to CSV format for import into `raindrop.io`
         #[arg(long, action = clap::ArgAction::SetTrue)]
         raindrop: bool,
+    },
+
+    /// Handle operations related to the research:// URL scheme
+    #[command(arg_required_else_help = true)]
+    Handle {
+        /// Register the URL handler for research:// URLs
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        register: bool,
+
+        /// Unregister the URL handler for research:// URLs
+        #[arg(long, action = clap::ArgAction::SetTrue)]
+        unregister: bool,
+
+        /// Handle a specific research:// URL
+        #[arg(long)]
+        url: Option<String>,
     },
 }
 
