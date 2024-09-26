@@ -57,6 +57,8 @@ terminal
   />
   <img alt="Hashnode logo" src="./.github/explainer.png" />
 </picture>
+
+
 ## Installation
 
 - Get the latest release binary for your desktop through the
