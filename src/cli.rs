@@ -23,6 +23,7 @@ pub enum Subcommands {
         command: PocketCommands,
     },
 
+    /// Add a new item to the database stored locally
     Local {
         #[clap(subcommand)]
         command: LocalCommands,

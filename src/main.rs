@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             } else if *unregister {
                 handler::platform_unregister_url();
             } else if let Some(url) = url {
-                handler::handle_url(url);
+                handler::handle_url(url).await?;
             }
         }
         None => {
