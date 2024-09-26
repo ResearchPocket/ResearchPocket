@@ -1,3 +1,5 @@
+use std::error::Error;
+
 use serde::Serialize;
 use sqlx::{sqlite::SqlitePoolOptions, FromRow, Pool, Row, Sqlite};
 
@@ -193,5 +195,81 @@ impl DB {
         .await?;
 
         Ok(())
+    }
+
+    /// Comma delimited
+    /// Columns: url, folder, title, note, tags, created
+    /// url column is required, others are optional
+    /// use / to specify nested folder, like a/b/c
+    /// to have multiple tags just put them in quotes, like "tag1, tag2"
+    pub async fn export_to_csv(&self, file_path: &str) -> Result<(), ExportError> {
+        let mut wtr = csv::Writer::from_path(file_path)?;
+        wtr.write_record(["folder", "url", "title", "note", "tags", "created"])?;
+
+        let items = self.get_all_items().await?;
+        for item in items {
+            let tags = self.get_item_tags(item.id.expect("No ID fetched")).await?;
+            let tags = tags
+                .iter()
+                .map(|t| t.tag_name.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            wtr.write_record([
+                "Research",
+                &item.uri,
+                &item.title,
+                &item.excerpt,
+                &tags,
+                &item.time_added.to_string(),
+            ])?;
+        }
+
+        wtr.flush()?;
+        Ok(())
+    }
+}
+
+#[derive(Debug)]
+pub enum ExportError {
+    Sqlx(sqlx::Error),
+    Csv(csv::Error),
+    Io(std::io::Error),
+}
+
+impl From<sqlx::Error> for ExportError {
+    fn from(e: sqlx::Error) -> Self {
+        ExportError::Sqlx(e)
+    }
+}
+
+impl From<csv::Error> for ExportError {
+    fn from(e: csv::Error) -> Self {
+        ExportError::Csv(e)
+    }
+}
+
+impl From<std::io::Error> for ExportError {
+    fn from(e: std::io::Error) -> Self {
+        ExportError::Io(e)
+    }
+}
+
+impl std::fmt::Display for ExportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match *self {
+            ExportError::Sqlx(ref e) => e.fmt(f),
+            ExportError::Csv(ref e) => e.fmt(f),
+            ExportError::Io(ref e) => e.fmt(f),
+        }
+    }
+}
+
+impl Error for ExportError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        match *self {
+            ExportError::Sqlx(ref e) => Some(e),
+            ExportError::Csv(ref e) => Some(e),
+            ExportError::Io(ref e) => Some(e),
+        }
     }
 }

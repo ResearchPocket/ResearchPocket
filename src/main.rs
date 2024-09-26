@@ -13,6 +13,7 @@ use tokio::io::AsyncWriteExt;
 mod assets;
 mod cli;
 mod db;
+mod handler;
 mod provider;
 mod site;
 mod util;
@@ -36,13 +37,46 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             assets,
             download_tailwind,
         }) => handle_generate_command(output, assets, *download_tailwind, &cli_args).await?,
+        Some(Subcommands::Export { raindrop }) => {
+            if *raindrop {
+                let db = DB::init(&cli_args.db).await.map_err(|err| {
+                    match err {
+                        sqlx::Error::Database(..) => {
+                            eprintln!("Database not found");
+                            eprintln!("Please set the database corrdct path with --db");
+                            eprintln!(
+                                "Or consider initializing the database with the 'init' command"
+                            );
+                        }
+                        _ => {
+                            eprintln!("Unknown error: {err:?}");
+                        }
+                    }
+                    err
+                })?;
+                db.export_to_csv("raindrop_export.csv").await?;
+                println!("Exported to raindrop_export.csv");
+            }
+        }
+        Some(Subcommands::Handle {
+            register,
+            unregister,
+            url,
+        }) => {
+            if *register {
+                handler::platform_register_url();
+            } else if *unregister {
+                handler::platform_unregister_url();
+            } else if let Some(url) = url {
+                handler::handle_url(url).await?;
+            }
+        }
         None => {
             eprintln!("No subcommand provided");
             eprintln!("Please provide a subcommand");
             eprintln!("Run with --help for more information");
         }
     }
-
     Ok(())
 }
 
