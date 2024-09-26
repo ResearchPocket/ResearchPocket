@@ -1,46 +1,62 @@
 <h1 align="center">Research Pocket 🔖</h1>
 <div align="center">
-  <strong>
-    The <em>last</em> save-it-later tool you'll ever need
-  </strong>
+  <strong> The <em>last</em> save-it-later tool you'll ever need </strong>
 </div>
 <br />
 <div align="center">
   <!-- Github Actions -->
-  <a href="https://github.com/ResearchPocket/ResearchPocket/actions/workflows/ci-biulds.yml">
-    <img alt="GitHub Actions Workflow Status" src="https://img.shields.io/github/actions/workflow/status/KorigamiK/ResearchPocket/ci-biulds.yml">
+  <a
+    href="https://github.com/ResearchPocket/ResearchPocket/actions/workflows/ci-biulds.yml"
+  >
+    <img
+      alt="GitHub Actions Workflow Status"
+      src="https://img.shields.io/github/actions/workflow/status/KorigamiK/ResearchPocket/ci-biulds.yml"
+    />
   </a>
   <!-- Version -->
   <a href="https://crates.io/crates/research">
-    <img src="https://img.shields.io/crates/v/research.svg?style=flat-square" alt="Crates.io version" />
+    <img
+      src="https://img.shields.io/crates/v/research.svg?style=flat-square"
+      alt="Crates.io version"
+    />
   </a>
   <!-- Docs -->
   <a href="https://docs.rs/research">
-      <img src="https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square" alt="docs.rs docs" />
+    <img
+      src="https://img.shields.io/badge/docs-latest-blue.svg?style=flat-square"
+      alt="docs.rs docs"
+    />
   </a>
   <!-- Downloads -->
   <a href="https://crates.io/crates/research">
-    <img src="https://img.shields.io/crates/d/research.svg?style=flat-square" alt="Download" />
+    <img
+      src="https://img.shields.io/crates/d/research.svg?style=flat-square"
+      alt="Download"
+    />
   </a>
 </div>
 
-<br/>
-
+<br />
 A self-hostable save-it-later tool that integrates with
 [getpocket.com](https://getpocket.com) (and others soon). works on the web and
 terminal
 
 > Create your own static site on GitHub pages
-[ResearchPocket/my-list](https://github.com/ResearchPocket/my-list) 📚
+> [ResearchPocket/my-list](https://github.com/ResearchPocket/my-list) 📚
 
 ## How it works
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="./.github/explainer-dark.png">
-  <source media="(prefers-color-scheme: light)" srcset="./.github/explainer.png">
-  <img alt="Hashnode logo" src="./.github/explainer.png" >
+  <source
+    media="(prefers-color-scheme: dark)"
+    srcset="./.github/explainer-dark.png"
+  />
+  <source
+    media="(prefers-color-scheme: light)"
+    srcset="./.github/explainer.png"
+  />
+  <img alt="Hashnode logo" src="./.github/explainer.png" />
 </picture>
-
 ## Installation
 
 - Get the latest release binary for your desktop through the
@@ -64,9 +80,12 @@ $ research fetch # fetches your articles
 $ # add --download-tailwind if you don't have tailwindcss installed in your $PATH
 $ research --db ./research.sqlite generate . # generate your site
 ```
+
 ## URL Handler
 
-Research Pocket includes a custom URL handler for the `research://` protocol. This allows you to save web pages directly from your browser using a bookmarklet.
+Research Pocket includes a custom URL handler for the `research://` protocol.
+This allows you to save web pages directly from your browser using a
+bookmarklet.
 
 ### Registering the URL Handler
 
@@ -76,7 +95,8 @@ To register the URL handler on your system, use the following command:
 $ research register
 ```
 
-This will set up the necessary configurations for your operating system to recognize and handle `research://` URLs.
+This will set up the necessary configurations for your operating system to
+recognize and handle `research://` URLs.
 
 ### Unregistering the URL Handler
 
@@ -88,7 +108,8 @@ $ research unregister
 
 ### Bookmarklet
 
-You can use the following bookmarklet to quickly save web pages to Research Pocket:
+You can use the following bookmarklet to quickly save web pages to Research
+Pocket:
 
 ```javascript
 javascript: (function () {
@@ -98,19 +119,23 @@ javascript: (function () {
   if (tags !== null && dbPath !== null) {
     var encodedTags = encodeURIComponent(tags);
     var encodedDbPath = encodeURIComponent(dbPath);
-    var researchUrl = `research://save?url=${currentUrl}&provider=local&tags=${encodedTags}&db_path=${encodedDbPath}`;
+    var researchUrl =
+      `research://save?url=${currentUrl}&provider=local&tags=${encodedTags}&db_path=${encodedDbPath}`;
     window.location.href = researchUrl;
   }
 })();
 ```
 
 To use this bookmarklet:
+
 1. Create a new bookmark in your browser.
 2. Set the name to something like "Save to Research Pocket".
 3. In the URL or location field, paste the above JavaScript code.
-4. Replace `/path/to/research.sqlite` with the actual path to your Research Pocket database.
+4. Replace `/path/to/research.sqlite` with the actual path to your Research
+   Pocket database.
 
-Now, when you click this bookmarklet on any web page, it will prompt you for tags and then save the page to your Research P
+Now, when you click this bookmarklet on any web page, it will prompt you for
+tags and then save the page to your Research Pocket
 
 ## Cli help
 
