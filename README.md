@@ -64,6 +64,53 @@ $ research fetch # fetches your articles
 $ # add --download-tailwind if you don't have tailwindcss installed in your $PATH
 $ research --db ./research.sqlite generate . # generate your site
 ```
+## URL Handler
+
+Research Pocket includes a custom URL handler for the `research://` protocol. This allows you to save web pages directly from your browser using a bookmarklet.
+
+### Registering the URL Handler
+
+To register the URL handler on your system, use the following command:
+
+```sh
+$ research register
+```
+
+This will set up the necessary configurations for your operating system to recognize and handle `research://` URLs.
+
+### Unregistering the URL Handler
+
+If you want to remove the URL handler, use:
+
+```sh
+$ research unregister
+```
+
+### Bookmarklet
+
+You can use the following bookmarklet to quickly save web pages to Research Pocket:
+
+```javascript
+javascript: (function () {
+  var currentUrl = encodeURIComponent(window.location.href);
+  var tags = prompt("Enter tags (comma-separated):", "");
+  var dbPath = "/path/to/research.sqlite";
+  if (tags !== null && dbPath !== null) {
+    var encodedTags = encodeURIComponent(tags);
+    var encodedDbPath = encodeURIComponent(dbPath);
+    var researchUrl = `research://save?url=${currentUrl}&provider=local&tags=${encodedTags}&db_path=${encodedDbPath}`;
+    window.location.href = researchUrl;
+  }
+})();
+```
+
+To use this bookmarklet:
+1. Create a new bookmark in your browser.
+2. Set the name to something like "Save to Research Pocket".
+3. In the URL or location field, paste the above JavaScript code.
+4. Replace `/path/to/research.sqlite` with the actual path to your Research Pocket database.
+
+Now, when you click this bookmarklet on any web page, it will prompt you for tags and then save the page to your Research P
 
 ## Cli help
 
@@ -77,18 +124,21 @@ $ research --db ./research.sqlite generate . # generate your site
   Usage: research [OPTIONS] [COMMAND]
 
   Commands:
-    pocket    Pocket related actions
-    fetch     Gets all data from authenticated providers
-    list      Lists all items in the database
-    init      Initializes the database
-    generate  Generate a static site
-    help      Print this message or the help of the given subcommand(s)
+      pocket    Pocket related actions
+      local     Add a new item to the database stored locally
+      fetch     Gets all data from authenticated providers
+      list      Lists all items in the database
+      init      Initializes the database
+      generate  Generate a static site
+      export    Export data from the current database
+      handle    Handle operations related to the research:// URL scheme
+      help      Print this message or the help of the given subcommand(s)
 
   Options:
-        --db <DB_URL>  Database url [env: DATABASE_URL=] [default: ./research.sqlite]
-    -d, --debug...     Turn debugging information on
-    -h, --help         Print help
-    -V, --version      Print version
+          --db <DB>   Database url [env: DATABASE_URL=] [default: ./research.sqlite]
+      -d, --debug...  Turn debugging information on
+      -h, --help      Print help
+      -V, --version   Print version
   ```
 
 - Init
@@ -99,7 +149,23 @@ $ research --db ./research.sqlite generate . # generate your site
   Usage: research init <PATH>
 
   Arguments:
-    <PATH>  
+    <PATH>
+
+  Options:
+    -h, --help  Print help
+  ```
+
+- Local
+
+  ```sh
+  Add a new item to the database stored locally
+
+  Usage: research local <COMMAND>
+
+  Commands:
+    add   Add an item to the local provider in the database
+    list  List all items in the local provider
+    help  Print this message or the help of the given subcommand(s)
 
   Options:
     -h, --help  Print help

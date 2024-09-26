@@ -45,7 +45,7 @@ impl Secrets {
 impl ResearchItem {
     /// Of the format "21 Aug'21, 5pm"
     pub fn format_time_added(&self) -> String {
-        let date = chrono::NaiveDateTime::from_timestamp_opt(self.time_added, 0).unwrap();
+        let date = chrono::DateTime::from_timestamp(self.time_added, 0).unwrap();
         date.format("%d %b'%y, %l%P").to_string()
     }
 }
