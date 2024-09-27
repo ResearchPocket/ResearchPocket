@@ -114,10 +114,27 @@ pub enum PocketCommands {
 
     /// Fetch items from pocket
     Fetch(FetchArgs),
+
+    /// Add an item to pocket
+    Add(PocketAddArgs),
 }
 
 #[derive(Args)]
-pub struct AddArgs {
+pub struct PocketAddArgs {
+    #[clap(flatten)]
+    pub add_args: LocalAddArgs,
+
+    /// Pocket Consumer key
+    #[arg(long, env = "POCKET_CONSUMER_KEY")]
+    pub key: Option<String>,
+
+    /// Pocket Access token
+    #[arg(long, env = "POCKET_ACCESS_TOKEN")]
+    pub access: Option<String>,
+}
+
+#[derive(Args)]
+pub struct LocalAddArgs {
     /// URI (link) of the item (required)
     pub uri: String,
 
@@ -135,7 +152,7 @@ pub struct AddArgs {
 #[derive(Subcommand)]
 pub enum LocalCommands {
     /// Add an item to the local provider in the database
-    Add(AddArgs),
+    Add(LocalAddArgs),
 
     /// List all items in the local provider
     List,

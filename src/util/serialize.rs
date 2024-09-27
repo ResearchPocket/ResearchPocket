@@ -1,5 +1,5 @@
 use chrono::{DateTime, TimeZone, Utc};
-use serde::{Deserialize, Deserializer};
+use serde::{Deserialize, Deserializer, Serializer};
 use serde_json::Value;
 use url::Url;
 
@@ -103,5 +103,15 @@ where
     match o {
         Some(v) => json_value_to_vec::<T, D>(v).map(Some),
         None => Ok(None),
+    }
+}
+
+pub fn to_comma_delimited_string<S>(x: &Option<&[&str]>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match x {
+        Some(value) => serializer.serialize_str(&value.join(",")),
+        None => serializer.serialize_none(),
     }
 }

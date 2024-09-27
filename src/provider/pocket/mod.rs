@@ -1,6 +1,6 @@
 use super::{Insertable, OnlineProvider, Provider, ResearchItem};
 use crate::db::{Secrets, Tags};
-use api::{get, login, PocketItem};
+use api::{add, get, login, PocketItem};
 
 pub mod api;
 
@@ -9,6 +9,10 @@ pub struct ProviderPocket {
     pub consumer_key: String,
     pub access_token: Option<String>,
     pub client: reqwest::Client,
+}
+
+impl Provider for ProviderPocket {
+    type Item = PocketItem;
 }
 
 impl OnlineProvider for ProviderPocket {
@@ -27,10 +31,21 @@ impl OnlineProvider for ProviderPocket {
             .await
             .map(|items| items.to_vec())
     }
-}
 
-impl Provider for ProviderPocket {
-    type Item = PocketItem;
+    async fn add_item(
+        &self,
+        uri: &str,
+        tags: Vec<&str>,
+    ) -> Result<Option<i64>, Box<dyn std::error::Error>> {
+        let access_token = self.access_token.as_ref().ok_or("Access token not found")?;
+        let add_request = api::PocketAddRequest {
+            url: uri,
+            title: None,
+            tags: Some(&tags),
+        };
+        let item_id = add(&self.client, access_token, &self.consumer_key, add_request).await?;
+        Ok(Some(item_id))
+    }
 }
 
 impl Insertable for PocketItem {

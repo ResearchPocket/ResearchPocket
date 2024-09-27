@@ -4,8 +4,8 @@ use url::Url;
 
 use crate::util::serialize::{
     bool_from_int_string, from_str, option_string_date_unix_timestamp_format,
-    optional_vec_from_map, string_date_unix_timestamp_format, try_url_from_string,
-    vec_from_map,
+    optional_vec_from_map, string_date_unix_timestamp_format, to_comma_delimited_string,
+    try_url_from_string, vec_from_map,
 };
 
 #[derive(Serialize)]
@@ -89,11 +89,11 @@ pub async fn login(
 }
 
 #[derive(Serialize)]
-struct PocketRequest<'a> {
+pub struct PocketRequest<'a, T> {
     consumer_key: &'a str,
     access_token: &'a str,
     #[serde(flatten)]
-    request: PocketGetParams,
+    request: T,
 }
 
 #[derive(Serialize, Debug)]
@@ -225,4 +225,52 @@ pub async fn get(
     // let resp_map = req.json::<serde_json::Map<String, Value>>().await?;
     // println!("{:#?}", resp_map);
     Ok(resp_json.list)
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct PocketAddRequest<'a> {
+    pub url: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<&'a str>,
+    #[serde(serialize_with = "to_comma_delimited_string")]
+    pub tags: Option<&'a [&'a str]>,
+}
+
+pub async fn add(
+    client: &reqwest::Client,
+    access_token: &str,
+    consumer_key: &str,
+    add_request: PocketAddRequest<'_>,
+) -> Result<i64, Box<dyn std::error::Error>> {
+    println!("Starting Pocket add request");
+
+    let body = &PocketRequest {
+        access_token,
+        consumer_key,
+        request: add_request,
+    };
+
+    let response = client
+        .post("https://getpocket.com/v3/add")
+        .json(&body)
+        .header("X-Accept", "application/json")
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        println!("Successfully added item to Pocket");
+        // get the item.item_id from the response
+        let item_id = response.json::<serde_json::Value>().await?;
+        let item_id = item_id.get("item").ok_or("item object not found in response")?;
+        let item_id  = item_id.get("item_id").ok_or("item_id not found in response")?;
+        let item_id = item_id.as_str().ok_or("item_id not a string")?;
+        Ok(item_id.parse()?)
+    } else {
+        let error_message = format!(
+            "Failed to add item to Pocket. Status: {}",
+            response.status()
+        );
+        println!("{}", error_message);
+        Err(error_message.into())
+    }
 }

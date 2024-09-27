@@ -1,8 +1,11 @@
 use crate::assets::css::build_css;
 use crate::provider::{Insertable, OnlineProvider, ProviderPocket};
 use clap::Parser;
-use cli::{AddArgs, AuthArgs, CliArgs, FetchArgs, LocalCommands, PocketCommands, Subcommands};
-use db::{Tags, DB};
+use cli::{
+    AuthArgs, CliArgs, FetchArgs, LocalAddArgs, LocalCommands, PocketAddArgs, PocketCommands,
+    Subcommands,
+};
+use db::{ResearchItem, Tags, DB};
 use provider::local::LocalItem;
 use site::Site;
 use sqlx::migrate::MigrateDatabase;
@@ -99,7 +102,7 @@ async fn handle_local_command(
     })?;
     let provider_id = db.get_provider_id("local").await?;
     match command {
-        LocalCommands::Add(AddArgs {
+        LocalCommands::Add(LocalAddArgs {
             uri,
             tag,
             title,
@@ -172,6 +175,72 @@ async fn handle_pocket_command(
         PocketCommands::Fetch(FetchArgs { key, access }) => {
             // Handle fetching items from Pocket with the provided keys
             fetch_from_pocket(&cli_args.db, key.to_string(), access.to_string()).await?;
+        }
+        PocketCommands::Add(PocketAddArgs {
+            add_args: LocalAddArgs { uri, tag, .. },
+            key,
+            access,
+        }) => {
+            // Handle adding an item to Pocket with the provided URI and tags
+            let db = DB::init(&cli_args.db).await.map_err(|err| {
+                match err {
+                    sqlx::Error::Database(..) => {
+                        eprintln!("Database not found");
+                        eprintln!("Please set the database corrdct path with --db");
+                        eprintln!(
+                            "Or consider initializing the database with the 'init' command"
+                        );
+                    }
+                    _ => {
+                        eprintln!("Unknown error: {err:?}");
+                    }
+                }
+                err
+            })?;
+            let secrets = db.get_secrets().await?;
+            let consumer_key = secrets.pocket_consumer_key.or(key.clone()).expect(
+                "Consumer key not found in the database, consider generating one from https://getpocket.com/developer/apps/new and running `pocket auth`",
+            );
+            let access_token = secrets.pocket_access_token.or(access.clone()).expect(
+                "Access token not found in the database, consider running 'pocket auth'",
+            );
+            let provider = ProviderPocket {
+                consumer_key,
+                access_token: Some(access_token),
+                ..Default::default()
+            };
+            let item_id = provider
+                .add_item(
+                    uri,
+                    tag.as_ref().map_or(Vec::new(), |tags| {
+                        tags.iter().map(|tag| tag.as_str()).collect()
+                    }),
+                )
+                .await?;
+
+            // add item to db
+            let tags: Vec<Tags> = tag.as_ref().map_or(Vec::new(), |tags| {
+                tags.iter()
+                    .map(|tag| Tags {
+                        tag_name: tag.clone(),
+                    })
+                    .collect()
+            });
+
+            println!("Saving item to database");
+            let metadata = handler::fetch_metadata(uri).await?;
+            let insertable_item = ResearchItem {
+                id: item_id,
+                uri: uri.to_string(),
+                title: metadata.title,
+                excerpt: metadata.description,
+                time_added: chrono::Utc::now().timestamp(),
+                favorite: false,
+                lang: None,
+            };
+            let provider_id = db.get_provider_id("pocket").await?;
+            println!("Item: {insertable_item:?}");
+            db.insert_item(insertable_item, &tags, provider_id).await?;
         }
     }
     Ok(())

@@ -16,4 +16,5 @@ pub trait Provider {
 pub trait OnlineProvider: Provider {
     async fn authenticate(&self) -> Result<Secrets, Box<dyn std::error::Error>>;
     async fn fetch_items(&self) -> Result<Vec<Self::Item>, Box<dyn std::error::Error>>;
+    async fn add_item(&self, uri: &str, tags: Vec<&str>) -> Result<Option<i64>, Box<dyn std::error::Error>>;
 }
