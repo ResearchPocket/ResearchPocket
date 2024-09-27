@@ -183,7 +183,7 @@ async fn handle_research_url(parsed_url: Url) -> Result<(), sqlx::Error> {
 
     let mut id: Option<i64> = None;
 
-    match provider.as_deref() {
+    match provider {
         Some(p) => match p.as_str() {
             "local" => {}
             "pocket" => {

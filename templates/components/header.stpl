@@ -1,4 +1,4 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title><%= title %> | Research</title>
-<link href="<%= assets_dir %>/dist.css" rel="stylesheet">
+<title><%= self.title %> | Research</title>
+<link href="<%= self.assets_dir %>/dist.css" rel="stylesheet">

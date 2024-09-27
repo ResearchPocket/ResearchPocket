@@ -6,7 +6,7 @@
   <body>
     <div class="container mx-auto px-4">
       <header class="text-center py-5">
-        <h1 class="text-5xl font-bold"><%= title %></h1>
+        <h1 class="text-5xl font-bold"><%= self.title %></h1>
         <p class="my-3">Your personal research library</p>
         <a href="./search.html" class="bg-blue-500 hover:bg-blue-700 font-bold py-2 px-4 rounded">Search</a>
       </header>
@@ -14,7 +14,7 @@
         <details class="container mx-auto px-4">
           <summary class="text-xl font-bold">Tags</summary>
           <ul class="inline-flex flex-wrap gap-2">
-            <% for tag in tags { %>
+            <% for tag in self.tags { %>
             <li class="pointer bg-gray-200 p-2 rounded"><%= tag %></li>
             <% } %>
           </ul>
@@ -22,7 +22,7 @@
       </section>
       <main>
         <ul class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          <% for (tags, item) in item_tags { %>
+          <% for (tags, item) in self.item_tags { %>
           <li style="background-color:#eee" class="p-2 rounded flex flex-col gap-2">
             <h3 class="text-lg font-bold break-words"> <%=&item.title%> </h3>
             <p><%=&item.format_time_added()%></p>

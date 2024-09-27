@@ -1,6 +1,7 @@
 use super::{Insertable, OnlineProvider, Provider, ResearchItem};
 use crate::db::{Secrets, Tags};
 use api::{add, get, login, PocketItem};
+use chrono::Utc;
 
 pub mod api;
 
@@ -50,14 +51,17 @@ impl OnlineProvider for ProviderPocket {
 
 impl Insertable for PocketItem {
     fn to_research_item(&self) -> ResearchItem {
-        let title = if !self.given_title.is_empty() {
-            Some(self.given_title.clone())
-        } else if !self.resolved_title.clone().unwrap_or_default().is_empty() {
-            self.resolved_title.clone()
-        } else {
-            Some("Untitled".to_string())
-        }
-        .unwrap();
+        let title = self
+            .given_title
+            .as_ref()
+            .filter(|title| !title.is_empty())
+            .or_else(|| {
+                self.resolved_title
+                    .as_ref()
+                    .filter(|title| !title.is_empty())
+            })
+            .cloned()
+            .unwrap_or_else(|| "Untitled".to_string());
 
         let uri = self
             .given_url
@@ -70,8 +74,8 @@ impl Insertable for PocketItem {
             uri,
             title,
             excerpt: self.excerpt.as_ref().map_or("".to_string(), |s| s.clone()),
-            time_added: self.time_added.timestamp(),
-            favorite: self.favorite,
+            time_added: self.time_added.unwrap_or(Utc::now()).timestamp(),
+            favorite: self.favorite.unwrap_or(false),
             lang: self.lang.clone(),
         }
     }

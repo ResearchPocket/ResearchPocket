@@ -8,7 +8,7 @@
 
     <div class="container mx-auto px-4">
       <header class="text-center py-5">
-        <h1 class="text-5xl font-bold"><%= title %></h1>
+        <h1 class="text-5xl font-bold"><%= self.title %></h1>
         <p class="my-3">Your personal research library</p>
         <a href="./index.html" class="bg-blue-500 hover:bg-blue-700 font-bold py-2 px-4 rounded">Index</a>
       </header>
@@ -23,7 +23,7 @@
       </main>
     </div>
 
-    <script type="module" src="<%= assets_dir %>/search.js"></script>
+    <script type="module" src="<%= self.assets_dir %>/search.js"></script>
 
   </body>
 </html>
