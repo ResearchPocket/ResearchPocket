@@ -31,3 +31,5 @@ research.sqlite-wal
 assets/tailwindcss
 /generated
 raindrop_export.csv
+test.json
+test.py

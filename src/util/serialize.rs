@@ -1,5 +1,3 @@
-use std::{fmt::Display, str::FromStr};
-
 use chrono::{DateTime, TimeZone, Utc};
 use serde::{de, Deserialize, Deserializer, Serializer};
 use serde_json::Value;
@@ -18,18 +16,6 @@ where
             .map(|i| Some(Utc.timestamp_opt(i, 0).unwrap()))
             .map_err(serde::de::Error::custom),
     })
-}
-
-pub fn string_date_unix_timestamp_format<'de, D>(
-    deserializer: D,
-) -> Result<DateTime<Utc>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(deserializer)?;
-    s.parse::<i64>()
-        .map(|i| Utc.timestamp_opt(i, 0).unwrap())
-        .map_err(serde::de::Error::custom)
 }
 
 pub fn from_str<'de, T, D>(deserializer: D) -> Result<T, D::Error>
@@ -109,20 +95,6 @@ fn map_to_vec<T>(map: std::collections::BTreeMap<String, T>) -> Vec<T> {
     map.into_values().collect::<Vec<_>>()
 }
 
-pub fn bool_from_int_string<'de, D>(deserializer: D) -> Result<bool, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    match String::deserialize(deserializer)?.as_str() {
-        "0" => Ok(false),
-        "1" => Ok(true),
-        other => Err(serde::de::Error::invalid_value(
-            serde::de::Unexpected::Str(other),
-            &"zero or one",
-        )),
-    }
-}
-
 pub fn option_bool_from_int_string<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
 where
     D: Deserializer<'de>,
@@ -136,15 +108,6 @@ where
         },
         None => Ok(None),
     }
-}
-
-pub fn vec_from_map<'de, T, D>(deserializer: D) -> Result<Vec<T>, D::Error>
-where
-    T: serde::de::DeserializeOwned + Clone + std::fmt::Debug,
-    D: serde::Deserializer<'de>,
-{
-    let value = Value::deserialize(deserializer)?;
-    json_value_to_vec::<T, D>(value)
 }
 
 pub fn optional_vec_from_map<'de, T, D>(deserializer: D) -> Result<Option<Vec<T>>, D::Error>
@@ -169,19 +132,5 @@ where
     match x {
         Some(value) => serializer.serialize_str(&value.join(",")),
         None => serializer.serialize_none(),
-    }
-}
-
-pub fn option_from_str<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    T: FromStr,
-    T::Err: Display,
-    D: Deserializer<'de>,
-{
-    let s: Option<String> = Option::deserialize(deserializer)?;
-    match s {
-        Some(s) if s.is_empty() => Ok(None),
-        Some(s) => s.parse().map(Some).map_err(de::Error::custom),
-        None => Ok(None),
     }
 }

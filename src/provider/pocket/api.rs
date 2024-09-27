@@ -224,7 +224,6 @@ pub async fn get(
 
         let raw_response = req.text().await?;
 
-        eprintln!("Raw response: {}", raw_response);
         let resp: PocketResponse = serde_json::from_str(&raw_response)
             .map_err(|e| format!("Error parsing {} response: {}", raw_response, e))?;
 

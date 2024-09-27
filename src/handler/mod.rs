@@ -172,7 +172,7 @@ async fn handle_research_url(parsed_url: Url) -> Result<(), sqlx::Error> {
     let provider_id = db
         .get_provider_id(provider.unwrap_or(&"local".to_string()))
         .await
-        .expect(format!("Failed to get provider ID for {:?}", provider).as_str());
+        .unwrap_or_else(|_| panic!("Failed to get provider ID for {:?}", provider));
     println!("Provider ID: {:?}", provider_id);
 
     // Fetch metadata from the URL

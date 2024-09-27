@@ -26,7 +26,7 @@ pub struct ResearchItem {
     pub lang: Option<String>,
 }
 
-#[derive(Clone, FromRow, Debug, Default)]
+#[derive(FromRow, Default)]
 pub struct Secrets {
     pub pocket_consumer_key: Option<String>,
     pub pocket_access_token: Option<String>,
