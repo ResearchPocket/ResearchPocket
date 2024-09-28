@@ -17,8 +17,8 @@ pub fn platform_register_url() {
 }
 
 #[cfg(target_os = "windows")]
-fn register_windows() {
-    let executable_path = env::current_exe().unwrap();
+fn register_windows() -> Result<(), std::io::Error> {
+    let executable_path = env::current_exe()?;
     let reg_command = format!(
         r#"REG ADD "HKCU\Software\Classes\research" /ve /d "URL:Research Protocol" /f &&
         REG ADD "HKCU\Software\Classes\research" /v "URL Protocol" /d "" /f &&
@@ -26,12 +26,17 @@ fn register_windows() {
         executable_path
     );
 
-    Command::new("cmd")
-        .args(&["/C", &reg_command])
-        .output()
-        .expect("Failed to execute registry command");
+    let output = Command::new("cmd").args(&["/C", &reg_command]).output()?;
+
+    if !output.status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            format!("Failed to register: {:?}", output),
+        ));
+    }
 
     println!("URL handler registered for Windows");
+    Ok(())
 }
 
 #[cfg(target_os = "macos")]

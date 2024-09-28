@@ -117,11 +117,16 @@ async fn handle_local_command(
                     .collect()
             });
 
+            let metadata = handler::fetch_metadata(uri).await?;
             let local_item = LocalItem {
                 id: None,
                 uri: uri.to_string(),
-                title: title.as_ref().cloned(),
-                excerpt: excerpt.as_ref().cloned(),
+                title: Some(title.clone().map_or(metadata.title, |title| title.clone())),
+                excerpt: Some(
+                    excerpt
+                        .clone()
+                        .map_or(metadata.description, |excerpt| excerpt.clone()),
+                ),
                 time_added: chrono::Utc::now().timestamp(),
                 tags: tags.clone(),
             };
