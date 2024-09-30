@@ -37,6 +37,7 @@
 </div>
 
 <br />
+
 A self-hostable save-it-later tool that integrates with
 [getpocket.com](https://getpocket.com) (and others soon). works on the web and
 terminal
@@ -57,8 +58,6 @@ terminal
   />
   <img alt="Hashnode logo" src="./.github/explainer.png" />
 </picture>
-
-
 ## Installation
 
 - Get the latest release binary for your desktop through the
@@ -76,11 +75,19 @@ This requires that you have
 available in your `$PATH`
 
 ```sh
-$ research init # initializes the database
-$ research pocket auth # authenticate with pocket
-$ research fetch # fetches your articles
-$ # add --download-tailwind if you don't have tailwindcss installed in your $PATH
-$ research --db ./research.sqlite generate . # generate your site
+# Initialize the database
+$ research init
+
+# Authenticate with Pocket
+$ research pocket auth
+
+# Fetch your articles
+$ research fetch
+
+# Generate your site
+# add --download-tailwind if you don't have tailwindcss installed in your $PATH
+$ research --db ./research.sqlite generate .
+
 ```
 
 ## URL Handler
@@ -138,6 +145,24 @@ To use this bookmarklet:
 
 Now, when you click this bookmarklet on any web page, it will prompt you for
 tags and then save the page to your Research Pocket
+
+## Contributing
+
+We welcome contributions to ResearchPocket! If you're interested in helping out,
+here are a few ways you can contribute:
+
+- Reporting bugs
+- Suggesting enhancements
+- Writing documentation
+- Submitting pull requests
+
+We participate in Hacktoberfest! During October, we encourage contributors to
+join us in improving ResearchPocket. Look for issues tagged with `hacktoberfest`
+to get started.
+
+For more detailed information about contributing to this project, including our
+Hacktoberfest participation, please check out our
+[CONTRIBUTING.md](CONTRIBUTING.md) guide.
 
 ## Cli help
 
