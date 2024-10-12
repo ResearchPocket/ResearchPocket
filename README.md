@@ -194,6 +194,21 @@ Hacktoberfest participation, please check out our
       -V, --version   Print version
   ```
 
+- List
+
+  ```sh
+  Lists all items in the database
+
+  Usage: research list [OPTIONS]
+
+  Options:
+    -t, --tags <TAGS>...  Filter by tags separated by commas Example: --tags rust,sql
+    -l, --limit <LIMIT>   Limit the number of items to display
+    -f, --favorite-only   Favorite items only (Default: false)
+    -h, --help            Print help
+
+  ```
+
 - Init
 
   ```sh
@@ -216,9 +231,10 @@ Hacktoberfest participation, please check out our
   Usage: research local <COMMAND>
 
   Commands:
-    add   Add an item to the local provider in the database
-    list  List all items in the local provider
-    help  Print this message or the help of the given subcommand(s)
+    add       Add an item to the local provider in the database
+    list      List all items in the local provider
+    favorite  Mark an item as favorite in the local provider
+    help      Print this message or the help of the given subcommand(s)
 
   Options:
     -h, --help  Print help
@@ -229,15 +245,18 @@ Hacktoberfest participation, please check out our
   ```sh
   Pocket related actions
 
-  Usage: research pocket [COMMAND]
+  Usage: research pocket <COMMAND>
 
   Commands:
-    auth   Authenticate using a consumer key
-    fetch  Fetch items from pocket
-    help   Print this message or the help of the given subcommand(s)
+    auth      Authenticate using a consumer key
+    fetch     Fetch items from pocket
+    add       Add an item to pocket
+    favorite  Mark an item as favorite in pocket
+    help      Print this message or the help of the given subcommand(s)
 
   Options:
     -h, --help  Print help
+
   ```
 
 - Fetch
