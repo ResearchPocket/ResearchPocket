@@ -2,8 +2,8 @@ use crate::assets::css::build_css;
 use crate::provider::{Insertable, OnlineProvider, ProviderPocket};
 use clap::Parser;
 use cli::{
-    AuthArgs, CliArgs, FetchArgs, LocalAddArgs, LocalCommands, PocketAddArgs, PocketCommands,
-    Subcommands,
+    AuthArgs, CliArgs, FetchArgs, LocalAddArgs, LocalCommands, LocalFavoriteArgs,
+    PocketAddArgs, PocketCommands, PocketFavoriteArgs, Subcommands,
 };
 use db::{ResearchItem, Tags, DB};
 use provider::local::LocalItem;
@@ -32,8 +32,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Subcommands::Local { command }) => {
             handle_local_command(command, &cli_args).await?
         }
-        Some(Subcommands::Fetch) => handle_fetch_command(&cli_args).await?,
-        Some(Subcommands::List { tag }) => handle_list_command(&cli_args, tag.as_ref()).await?,
+        Some(Subcommands::Fetch { limit }) => handle_fetch_command(&cli_args, *limit).await?,
+        Some(Subcommands::List {
+            tags,
+            limit,
+            favorite_only,
+        }) => {
+            let favorite = if *favorite_only { Some(true) } else { None };
+            handle_list_command(&cli_args, tags.as_ref(), favorite, *limit).await?
+        }
         Some(Subcommands::Init { path }) => handle_init_command(path, &cli_args).await?,
         Some(Subcommands::Generate {
             output,
@@ -142,6 +149,14 @@ async fn handle_local_command(
                 println!("{:?}", item);
             }
         }
+        LocalCommands::Favorite(LocalFavoriteArgs { uri, mark }) => {
+            let item_id = db
+                .get_item_id(uri)
+                .await?
+                .expect("Item uri not found in the database");
+            db.mark_as_favorite(item_id, *mark).await?;
+            println!("Item marked as favorite: {mark}");
+        }
     }
     Ok(())
 }
@@ -177,9 +192,10 @@ async fn handle_pocket_command(
             db.set_secret(secrets).await?;
             println!("Success: Access token saved to the database! You can now run `pocket fetch` to fetch items from Pocket.")
         }
-        PocketCommands::Fetch(FetchArgs { key, access }) => {
+        PocketCommands::Fetch(FetchArgs { key, access, limit }) => {
             // Handle fetching items from Pocket with the provided keys
-            fetch_from_pocket(&cli_args.db, key.to_string(), access.to_string()).await?;
+            fetch_from_pocket(&cli_args.db, key.to_string(), access.to_string(), *limit)
+                .await?;
         }
         PocketCommands::Add(PocketAddArgs {
             add_args: LocalAddArgs { uri, tag, .. },
@@ -247,11 +263,59 @@ async fn handle_pocket_command(
             println!("Item: {insertable_item:?}");
             db.insert_item(insertable_item, &tags, provider_id).await?;
         }
+        PocketCommands::Favorite(PocketFavoriteArgs {
+            fav_args:
+                LocalFavoriteArgs {
+                    uri,
+                    mark: favorite,
+                },
+            access,
+            key,
+        }) => {
+            // Handle adding an item to Pocket with the provided URI and tags
+            let db = DB::init(&cli_args.db).await.map_err(|err| {
+                match err {
+                    sqlx::Error::Database(..) => {
+                        eprintln!("Database not found");
+                        eprintln!("Please set the database corrdct path with --db");
+                        eprintln!(
+                            "Or consider initializing the database with the 'init' command"
+                        );
+                    }
+                    _ => {
+                        eprintln!("Unknown error: {err:?}");
+                    }
+                }
+                err
+            })?;
+            let secrets = db.get_secrets().await?;
+            let consumer_key = secrets.pocket_consumer_key.or(key.clone()).expect(
+                "Consumer key not found in the database, consider generating one from https://getpocket.com/developer/apps/new and running `pocket auth`",
+            );
+            let access_token = secrets.pocket_access_token.or(access.clone()).expect(
+                "Access token not found in the database, consider running 'pocket auth'",
+            );
+            let provider = ProviderPocket {
+                consumer_key,
+                access_token: Some(access_token),
+                ..Default::default()
+            };
+            let item_id = db
+                .get_item_id(uri)
+                .await?
+                .expect("Item uri not found in the database");
+            provider.mark_as_favorite(item_id, *favorite).await?;
+            db.mark_as_favorite(item_id, *favorite).await?;
+            println!("Item marked as favorite: {favorite}");
+        }
     }
     Ok(())
 }
 
-async fn handle_fetch_command(cli_args: &CliArgs) -> Result<(), Box<dyn std::error::Error>> {
+async fn handle_fetch_command(
+    cli_args: &CliArgs,
+    limit: Option<usize>,
+) -> Result<(), Box<dyn std::error::Error>> {
     // Handle fetching data from authenticated providers
     let db = DB::init(&cli_args.db).await.map_err(|err| {
         match err {
@@ -271,13 +335,15 @@ async fn handle_fetch_command(cli_args: &CliArgs) -> Result<(), Box<dyn std::err
     let access_token = secrets
         .pocket_access_token
         .expect("Access token not found in the database, consider running 'pocket auth'");
-    fetch_from_pocket(&cli_args.db, consumer_key, access_token).await?;
+    fetch_from_pocket(&cli_args.db, consumer_key, access_token, limit).await?;
     Ok(())
 }
 
 async fn handle_list_command(
     cli_args: &CliArgs,
     tags: Option<&Vec<String>>,
+    favorite: Option<bool>,
+    limit: Option<usize>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Handle listing items in the database
     let db = DB::init(&cli_args.db).await.map_err(|err| {
@@ -294,17 +360,25 @@ async fn handle_list_command(
         err
     })?;
     if let Some(tags) = tags {
-        let items = db.get_all_items_by_tags(tags).await?;
+        let mut items = db.get_all_items_by_tags(tags, favorite).await?;
         println!("Tags: {:?}", tags);
-        println!("Items: {:?}", items.len());
+        println!("Total items: {}", items.len());
+        if let Some(limit) = limit {
+            items.truncate(limit);
+        }
+        println!("Displaying {} items:", items.len());
         for item in items {
             println!("{:?}", item);
         }
     } else {
-        let items = db.get_all_items().await?;
-        println!("Items: {:?}", items.len());
+        let mut items = db.get_all_items(favorite).await?;
+        println!("Total items: {}", items.len());
+        if let Some(limit) = limit {
+            items.truncate(limit);
+        }
+        println!("Displaying {} items:", items.len());
         for item in items {
-            println!("{:?}", item);
+            println!("{}", item);
         }
     }
     Ok(())
@@ -386,6 +460,7 @@ async fn fetch_from_pocket<'a>(
     db_url: &str,
     consumer_key: String,
     access_token: String,
+    limit: Option<usize>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let provider = ProviderPocket {
         consumer_key,
@@ -397,7 +472,7 @@ async fn fetch_from_pocket<'a>(
     println!("Sqlite version: {}", db.get_sqlite_version().await?);
 
     let provider_id = db.get_provider_id("pocket").await?;
-    let items = provider.fetch_items().await?;
+    let items = provider.fetch_items(limit).await?;
     eprintln!("Items: {}", items.len());
 
     for item in items {

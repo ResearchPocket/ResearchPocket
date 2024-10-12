@@ -134,3 +134,10 @@ where
         None => serializer.serialize_none(),
     }
 }
+
+pub fn serialize_as_string<S>(item_id: &i64, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str(&item_id.to_string())
+}

@@ -1,5 +1,6 @@
-use std::error::Error;
+use std::{error::Error, fmt};
 
+use chrono::{TimeZone, Utc};
 use serde::Serialize;
 use sqlx::{sqlite::SqlitePoolOptions, FromRow, Pool, Row, Sqlite};
 
@@ -24,6 +25,31 @@ pub struct ResearchItem {
     pub time_added: i64,
     pub favorite: bool,
     pub lang: Option<String>,
+}
+
+impl fmt::Display for ResearchItem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let formatted_time = Utc
+            .timestamp_opt(self.time_added, 0)
+            .single()
+            .map(|dt| dt.format("%B %d, %Y at %I:%M %p").to_string())
+            .unwrap_or_else(|| "Invalid Date".to_string());
+
+        writeln!(f, "Research Item")?;
+        writeln!(f, "-------------")?;
+        if let Some(id) = self.id {
+            writeln!(f, "ID: {}", id)?;
+        }
+        writeln!(f, "Title: {}", self.title)?;
+        writeln!(f, "URL: {}", self.uri)?;
+        writeln!(f, "Added: {}", formatted_time)?;
+        writeln!(f, "Favorite: {}", if self.favorite { "Yes" } else { "No" })?;
+        if let Some(lang) = &self.lang {
+            writeln!(f, "Language: {}", lang)?;
+        }
+        writeln!(f, "Excerpt:")?;
+        writeln!(f, "{}", self.excerpt)
+    }
 }
 
 #[derive(FromRow, Default)]
@@ -117,9 +143,17 @@ impl DB {
         Ok(())
     }
 
-    pub async fn get_all_items(&self) -> Result<Vec<ResearchItem>, sqlx::Error> {
-        // get all items sorted by time_added
-        sqlx::query_as::<_, ResearchItem>("SELECT * FROM items ORDER BY time_added DESC")
+    pub async fn get_all_items(
+        &self,
+        favorite: Option<bool>,
+    ) -> Result<Vec<ResearchItem>, sqlx::Error> {
+        let query = match favorite {
+            Some(true) => "SELECT * FROM items WHERE favorite = 1 ORDER BY time_added DESC",
+            Some(false) => "SELECT * FROM items WHERE favorite = 0 ORDER BY time_added DESC",
+            None => "SELECT * FROM items ORDER BY time_added DESC",
+        };
+
+        sqlx::query_as::<_, ResearchItem>(query)
             .fetch_all(&self.pool)
             .await
     }
@@ -127,10 +161,18 @@ impl DB {
     pub async fn get_all_items_by_tags(
         &self,
         tags: &[String],
+        favorite: Option<bool>,
     ) -> Result<Vec<ResearchItem>, sqlx::Error> {
+        let favorite_clause = match favorite {
+            Some(true) => "AND items.favorite = 1",
+            Some(false) => "AND items.favorite = 0",
+            None => "",
+        };
+
         let query = format!(
-            "SELECT items.* FROM items JOIN item_tags ON items.id = item_tags.item_id WHERE item_tags.tag_name IN ({}) GROUP BY items.id HAVING COUNT(DISTINCT item_tags.tag_name) = {}",
+            "SELECT items.* FROM items JOIN item_tags ON items.id = item_tags.item_id WHERE item_tags.tag_name IN ({}) {} GROUP BY items.id HAVING COUNT(DISTINCT item_tags.tag_name) = {}",
             tags.iter().map(|t| format!("'{}'", t)).collect::<Vec<_>>().join(", "),
+            favorite_clause,
             tags.len()
         );
 
@@ -162,7 +204,7 @@ impl DB {
     pub async fn get_all_item_tags(
         &self,
     ) -> Result<Vec<(Vec<Tags>, ResearchItem)>, sqlx::Error> {
-        let items = self.get_all_items().await?;
+        let items = self.get_all_items(None).await?;
         let mut item_tags = Vec::<(Vec<Tags>, ResearchItem)>::new();
         for item in items.iter().filter(|i| i.id.is_some()) {
             let tags = self.get_item_tags(item.id.unwrap()).await?;
@@ -206,7 +248,7 @@ impl DB {
         let mut wtr = csv::Writer::from_path(file_path)?;
         wtr.write_record(["folder", "url", "title", "note", "tags", "created"])?;
 
-        let items = self.get_all_items().await?;
+        let items = self.get_all_items(None).await?;
         for item in items {
             let tags = self.get_item_tags(item.id.expect("No ID fetched")).await?;
             let tags = tags
@@ -226,6 +268,23 @@ impl DB {
 
         wtr.flush()?;
         Ok(())
+    }
+
+    pub async fn mark_as_favorite(&self, item_id: i64, mark: bool) -> Result<(), sqlx::Error> {
+        let _ = sqlx::query("UPDATE items SET favorite = ? WHERE id = ?")
+            .bind(mark)
+            .bind(item_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn get_item_id(&self, uri: &str) -> Result<Option<i64>, sqlx::Error> {
+        let row = sqlx::query("SELECT id FROM items WHERE uri = ?")
+            .bind(uri)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| r.get(0)))
     }
 }
 

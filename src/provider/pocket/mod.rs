@@ -1,6 +1,6 @@
 use super::{Insertable, OnlineProvider, Provider, ResearchItem};
 use crate::db::{Secrets, Tags};
-use api::{add, get, login, PocketItem};
+use api::{add, favorite, get, login, PocketItem};
 use chrono::Utc;
 
 pub mod api;
@@ -26,11 +26,12 @@ impl OnlineProvider for ProviderPocket {
         })
     }
 
-    async fn fetch_items(&self) -> Result<Vec<PocketItem>, Box<dyn std::error::Error>> {
+    async fn fetch_items(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Vec<PocketItem>, Box<dyn std::error::Error>> {
         let access_token = self.access_token.as_ref().ok_or("Access token not found")?;
-        get(access_token, &self.consumer_key, &self.client)
-            .await
-            .map(|items| items.to_vec())
+        get(access_token, &self.consumer_key, &self.client, limit).await
     }
 
     async fn add_item(
@@ -46,6 +47,23 @@ impl OnlineProvider for ProviderPocket {
         };
         let item_id = add(&self.client, access_token, &self.consumer_key, add_request).await?;
         Ok(Some(item_id))
+    }
+
+    async fn mark_as_favorite(
+        &self,
+        item_id: i64,
+        mark: bool,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let access_token = self.access_token.as_ref().ok_or("Access token not found")?;
+        favorite(
+            &self.client,
+            access_token,
+            &self.consumer_key,
+            item_id,
+            mark,
+        )
+        .await?;
+        Ok(())
     }
 }
 

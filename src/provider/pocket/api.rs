@@ -1,9 +1,10 @@
 use crate::util::serialize::from_str;
+use crate::util::serialize::option_bool_from_int_string;
 use crate::util::serialize::option_string_date_unix_timestamp_format;
 use crate::util::serialize::optional_vec_from_map;
+use crate::util::serialize::serialize_as_string;
 use crate::util::serialize::to_comma_delimited_string;
 use crate::util::serialize::try_url_from_string;
-use crate::util::serialize::option_bool_from_int_string;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -190,6 +191,7 @@ pub async fn get(
     access_token: &str,
     consumer_key: &str,
     client: &reqwest::Client,
+    limit: Option<usize>,
 ) -> Result<Vec<PocketItem>, Box<dyn std::error::Error>> {
     println!("Starting to fetch Pocket items");
     let mut all_items = Vec::new();
@@ -279,6 +281,15 @@ pub async fn get(
 
                     offset += count;
                     println!("Total items fetched so far: {}", all_items.len());
+
+                    // Check if we've reached the limit
+                    if let Some(limit) = limit {
+                        if all_items.len() >= limit {
+                            println!("Reached item limit. Breaking loop.");
+                            all_items.truncate(limit);
+                            break;
+                        }
+                    }
                 } else {
                     println!(
                         "Received response with no list field. Continuing to next request."
@@ -348,6 +359,71 @@ pub async fn add(
     } else {
         let error_message = format!(
             "Failed to add item to Pocket. Status: {}",
+            response.status()
+        );
+        println!("{}", error_message);
+        Err(error_message.into())
+    }
+}
+
+#[derive(Serialize)]
+struct PocketSendRequest {
+    actions: Vec<PocketFavoriteRequest>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "lowercase")]
+enum SendAction {
+    Favorite,
+    Unfavorite,
+}
+
+#[derive(Serialize)]
+struct PocketFavoriteRequest {
+    #[serde(serialize_with = "serialize_as_string")]
+    item_id: i64,
+    action: SendAction,
+    time: Option<String>,
+}
+
+pub async fn favorite(
+    client: &reqwest::Client,
+    access_token: &str,
+    consumer_key: &str,
+    item_id: i64,
+    mark: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    println!("Starting Pocket favorite request");
+
+    let body = &PocketRequest {
+        access_token,
+        consumer_key,
+        request: PocketSendRequest {
+            actions: vec![PocketFavoriteRequest {
+                item_id,
+                time: None,
+                action: if mark {
+                    SendAction::Favorite
+                } else {
+                    SendAction::Unfavorite
+                },
+            }],
+        },
+    };
+
+    let response = client
+        .post("https://getpocket.com/v3/send")
+        .json(&body)
+        .header("X-Accept", "application/json")
+        .send()
+        .await?;
+
+    if response.status().is_success() {
+        println!("Successfully marked item as favorite in Pocket");
+        Ok(())
+    } else {
+        let error_message = format!(
+            "Failed to mark item as favorite in Pocket. Status: {}",
             response.status()
         );
         println!("{}", error_message);

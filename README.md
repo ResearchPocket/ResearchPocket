@@ -59,7 +59,6 @@ terminal
   <img alt="Hashnode logo" src="./.github/explainer.png" />
 </picture>
 
-
 ## Installation
 
 - Get the latest release binary for your desktop through the
@@ -77,11 +76,19 @@ This requires that you have
 available in your `$PATH`
 
 ```sh
-$ research init # initializes the database
-$ research pocket auth # authenticate with pocket
-$ research fetch # fetches your articles
-$ # add --download-tailwind if you don't have tailwindcss installed in your $PATH
-$ research --db ./research.sqlite generate . # generate your site
+# Initialize the database
+$ research init
+
+# Authenticate with Pocket
+$ research pocket auth
+
+# Fetch your articles
+$ research fetch
+
+# Generate your site
+# add --download-tailwind if you don't have tailwindcss installed in your $PATH
+$ research --db ./research.sqlite generate .
+
 ```
 
 ## URL Handler
@@ -140,6 +147,24 @@ To use this bookmarklet:
 Now, when you click this bookmarklet on any web page, it will prompt you for
 tags and then save the page to your Research Pocket
 
+## Contributing
+
+We welcome contributions to ResearchPocket! If you're interested in helping out,
+here are a few ways you can contribute:
+
+- Reporting bugs
+- Suggesting enhancements
+- Writing documentation
+- Submitting pull requests
+
+We participate in Hacktoberfest! During October, we encourage contributors to
+join us in improving ResearchPocket. Look for issues tagged with `hacktoberfest`
+to get started.
+
+For more detailed information about contributing to this project, including our
+Hacktoberfest participation, please check out our
+[CONTRIBUTING.md](CONTRIBUTING.md) guide.
+
 ## Cli help
 
 - Basic Help
@@ -169,6 +194,21 @@ tags and then save the page to your Research Pocket
       -V, --version   Print version
   ```
 
+- List
+
+  ```sh
+  Lists all items in the database
+
+  Usage: research list [OPTIONS]
+
+  Options:
+    -t, --tags <TAGS>...  Filter by tags separated by commas Example: --tags rust,sql
+    -l, --limit <LIMIT>   Limit the number of items to display
+    -f, --favorite-only   Favorite items only (Default: false)
+    -h, --help            Print help
+
+  ```
+
 - Init
 
   ```sh
@@ -191,9 +231,10 @@ tags and then save the page to your Research Pocket
   Usage: research local <COMMAND>
 
   Commands:
-    add   Add an item to the local provider in the database
-    list  List all items in the local provider
-    help  Print this message or the help of the given subcommand(s)
+    add       Add an item to the local provider in the database
+    list      List all items in the local provider
+    favorite  Mark an item as favorite in the local provider
+    help      Print this message or the help of the given subcommand(s)
 
   Options:
     -h, --help  Print help
@@ -204,15 +245,18 @@ tags and then save the page to your Research Pocket
   ```sh
   Pocket related actions
 
-  Usage: research pocket [COMMAND]
+  Usage: research pocket <COMMAND>
 
   Commands:
-    auth   Authenticate using a consumer key
-    fetch  Fetch items from pocket
-    help   Print this message or the help of the given subcommand(s)
+    auth      Authenticate using a consumer key
+    fetch     Fetch items from pocket
+    add       Add an item to pocket
+    favorite  Mark an item as favorite in pocket
+    help      Print this message or the help of the given subcommand(s)
 
   Options:
     -h, --help  Print help
+
   ```
 
 - Fetch

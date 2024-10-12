@@ -30,14 +30,26 @@ pub enum Subcommands {
     },
 
     /// Gets all data from authenticated providers
-    Fetch,
+    Fetch {
+        /// Limit the maximum number of items to fetch for each provider
+        #[arg(short, long)]
+        limit: Option<usize>,
+    },
 
     /// Lists all items in the database
     List {
         /// Filter by tags separated by commas
-        /// Example: --tag rust,sql
+        /// Example: --tags rust,sql
         #[clap(short, long, value_delimiter = ',', num_args = 1.. )]
-        tag: Option<Vec<String>>,
+        tags: Option<Vec<String>>,
+
+        /// Limit the number of items to display
+        #[arg(short, long)]
+        limit: Option<usize>,
+
+        /// Favorite items only (Default: false)
+        #[arg(short = 'f', long, default_value = "false")]
+        favorite_only: bool,
     },
 
     /// Initializes the database
@@ -105,6 +117,10 @@ pub struct FetchArgs {
     /// Pocket Access token
     #[arg(long, env = "POCKET_ACCESS_TOKEN", required = true)]
     pub access: String,
+
+    /// Limit the maximum number of items to fetch
+    #[arg(short, long)]
+    pub limit: Option<usize>,
 }
 
 #[derive(Subcommand)]
@@ -117,12 +133,29 @@ pub enum PocketCommands {
 
     /// Add an item to pocket
     Add(PocketAddArgs),
+
+    /// Mark an item as favorite in pocket
+    Favorite(PocketFavoriteArgs),
 }
 
 #[derive(Args)]
 pub struct PocketAddArgs {
     #[clap(flatten)]
     pub add_args: LocalAddArgs,
+
+    /// Pocket Consumer key
+    #[arg(long, env = "POCKET_CONSUMER_KEY")]
+    pub key: Option<String>,
+
+    /// Pocket Access token
+    #[arg(long, env = "POCKET_ACCESS_TOKEN")]
+    pub access: Option<String>,
+}
+
+#[derive(Args)]
+pub struct PocketFavoriteArgs {
+    #[clap(flatten)]
+    pub fav_args: LocalFavoriteArgs,
 
     /// Pocket Consumer key
     #[arg(long, env = "POCKET_CONSUMER_KEY")]
@@ -149,6 +182,16 @@ pub struct LocalAddArgs {
     pub tag: Option<Vec<String>>,
 }
 
+#[derive(Args)]
+pub struct LocalFavoriteArgs {
+    /// URI (link) of the item to mark as favorite
+    pub uri: String,
+
+    /// Mark the item as favorite or not (Default: true)
+    #[arg(short, long, default_value = "true")]
+    pub mark: bool,
+}
+
 #[derive(Subcommand)]
 pub enum LocalCommands {
     /// Add an item to the local provider in the database
@@ -156,4 +199,7 @@ pub enum LocalCommands {
 
     /// List all items in the local provider
     List,
+
+    /// Mark an item as favorite in the local provider
+    Favorite(LocalFavoriteArgs),
 }
