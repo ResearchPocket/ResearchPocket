@@ -43,7 +43,7 @@ A self-hostable save-it-later tool that integrates with
 terminal
 
 > [!TIP]
-> Fint the guide to creating your own static site on GitHub pages here
+> Find the guide to creating your own static site on GitHub pages here
 > [ResearchPocket/my-list](https://github.com/ResearchPocket/my-list) 📚
 
 ## How it works
