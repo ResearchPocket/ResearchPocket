@@ -42,7 +42,8 @@ A self-hostable save-it-later tool that integrates with
 [getpocket.com](https://getpocket.com) (and others soon). works on the web and
 terminal
 
-> Create your own static site on GitHub pages
+> [!TIP]
+> Fint the guide to creating your own static site on GitHub pages here
 > [ResearchPocket/my-list](https://github.com/ResearchPocket/my-list) 📚
 
 ## How it works
