@@ -13,10 +13,8 @@
       <section>
         <details class="container mx-auto px-4">
           <summary class="text-xl font-bold">Tags</summary>
-          <ul class="inline-flex flex-wrap gap-2">
-            <% for tag in self.tags { %>
-            <li class="pointer bg-gray-200 p-2 rounded"><%= tag %></li>
-            <% } %>
+          <ul class="inline-flex flex-wrap gap-2"><% for tag in self.tags { %>
+          <li class="pointer bg-gray-200 p-2 rounded"><%= tag %></li><% } %>
           </ul>
         </details>
       </section>
@@ -32,10 +30,8 @@
                    _ => item.uri.chars().take(10).collect::<String>()
                  }
                %></p>
-            <ul class="inline-flex flex-wrap gap-2" >
-              <% for tag in tags { %>
-              <li class="pointer p-2 rounded" style="background-color:#ccf"><%= tag.tag_name %></li>
-              <% } %>
+            <ul class="inline-flex flex-wrap gap-2" ><% for tag in tags { %>
+              <li class="pointer p-2 rounded" style="background-color:#ccf"><%= tag.tag_name %></li><% } %>
             </ul>
             <a href="<%=&item.uri%>" target="_blank">
               <p class="break-words"><%=&item.excerpt%></p>
