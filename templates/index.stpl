@@ -26,6 +26,12 @@
           <li style="background-color:#eee" class="p-2 rounded flex flex-col gap-2">
             <h3 class="text-lg font-bold break-words"> <%=&item.title%> </h3>
             <p><%=&item.format_time_added()%></p>
+            <p class="text-sm text-gray-500"><%=
+                 match item.uri.split('/').nth(2) {
+                   Some(domain) if !domain.is_empty() => domain.to_string(),
+                   _ => item.uri.chars().take(10).collect::<String>()
+                 }
+               %></p>
             <ul class="inline-flex flex-wrap gap-2" >
               <% for tag in tags { %>
               <li class="pointer p-2 rounded" style="background-color:#ccf"><%= tag.tag_name %></li>

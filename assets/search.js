@@ -16,12 +16,12 @@ const fuse = new Fuse(item_tags, options);
  */
 function searchItems(searchQuery) {
   const tags = searchQuery.split(",").map((tag) => tag.trim());
-  const pattern = tags.map(/** @param {string} tag */ (tag) => `'${tag}`).join(
+  const pattern = tags.map(/** @param {string} tag */(tag) => `'${tag}`).join(
     "|",
   );
   const results = fuse.search(pattern);
 
-  return results.map(/** @param {{item: item_tag}} result */ (result) =>
+  return results.map(/** @param {{item: item_tag}} result */(result) =>
     result.item
   );
 }
@@ -47,9 +47,11 @@ function handleSearch(e) {
     const tagsHtml = item.tags.map((tag) =>
       `<li class="pointer p-2 rounded" style="background-color:#ccf">${tag}</li>`
     ).join("");
-
+    const domain = item.uri.split('/')[2];
+    const domain_str = domain && domain.length > 0 ? domain : item.uri.slice(0, 10);
     itemElement.innerHTML = `
 <h3 class="text-lg font-bold break-words">${item.title}</h3>
+<p class="text-sm text-gray-500">${domain_str}</p>
 <ul class="inline-flex flex-wrap gap-2" >
 ${tagsHtml}
 </ul>
