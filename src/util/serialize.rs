@@ -3,6 +3,8 @@ use serde::{de, Deserialize, Deserializer, Serializer};
 use serde_json::Value;
 use url::Url;
 
+use crate::provider::pocket::api::ItemStatus;
+
 pub fn option_string_date_unix_timestamp_format<'de, D>(
     deserializer: D,
 ) -> Result<Option<DateTime<Utc>>, D::Error>
@@ -140,4 +142,19 @@ where
     S: Serializer,
 {
     serializer.serialize_str(&item_id.to_string())
+}
+
+pub fn option_status_from_int_string<'de, D>(
+    deserializer: D,
+) -> Result<Option<ItemStatus>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: Option<String> = Option::deserialize(deserializer)?;
+    Ok(s.and_then(|s| match s.as_str() {
+        "0" => Some(ItemStatus::Normal),
+        "1" => Some(ItemStatus::Archived),
+        "2" => Some(ItemStatus::Deleted),
+        _ => None,
+    }))
 }
