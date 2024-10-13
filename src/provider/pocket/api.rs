@@ -1,5 +1,6 @@
 use crate::util::serialize::from_str;
 use crate::util::serialize::option_bool_from_int_string;
+use crate::util::serialize::option_status_from_int_string;
 use crate::util::serialize::option_string_date_unix_timestamp_format;
 use crate::util::serialize::optional_vec_from_map;
 use crate::util::serialize::serialize_as_string;
@@ -183,6 +184,16 @@ pub struct PocketItem {
     pub excerpt: Option<String>,
 
     pub lang: Option<String>,
+    #[serde(default, deserialize_with = "option_status_from_int_string")]
+    pub status: Option<ItemStatus>,
+}
+
+#[derive(Debug, Deserialize, PartialEq, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum ItemStatus {
+    Normal = 0,
+    Archived = 1,
+    Deleted = 2,
 }
 
 /// Isn't very reliable and subject to change without notice
@@ -238,8 +249,8 @@ pub async fn get(
                             match serde_json::from_value::<PocketItem>(value.clone()) {
                                 Ok(item) => Some(item),
                                 Err(e) => {
-                                    eprintln!("Failed to parse item {}: {}", key, e);
                                     // Print the problematic fields
+                                    eprintln!("Failed to parse item {}: {}", key, e);
                                     if let Some(obj) = value.as_object() {
                                         for (field, field_value) in obj {
                                             if let Err(field_err) =
@@ -306,6 +317,11 @@ pub async fn get(
         println!("Sleeping before next request");
         tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
     }
+
+    let all_items: Vec<PocketItem> = all_items
+        .into_iter()
+        .filter(|item| item.status != Some(ItemStatus::Deleted))
+        .collect();
 
     println!(
         "Finished fetching Pocket items. Total items: {}",
