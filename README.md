@@ -203,11 +203,11 @@ Hacktoberfest participation, please check out our
   Usage: research list [OPTIONS]
 
   Options:
-    -t, --tags <TAGS>...  Filter by tags separated by commas Example: --tags rust,sql
-    -l, --limit <LIMIT>   Limit the number of items to display
-    -f, --favorite-only   Favorite items only (Default: false)
-    -h, --help            Print help
-
+    -t, --tags <TAGS>...       Filter by tags separated by commas Example: --tags rust,sql
+    -l, --limit <LIMIT>        Limit the number of items to display
+    -f, --favorite-only        Favorite items only (Default: false)
+        --timezone <TIMEZONE>  Optional timezone (e.g., "America/New_York", "UTC")
+    -h, --help                 Print help
   ```
 
 - Init
@@ -283,15 +283,17 @@ Hacktoberfest participation, please check out our
   binary in the assets directory.
 
   ```sh
-    Generate a static site
+  Generate a static site
 
-    Usage: research generate [OPTIONS] <OUTPUT>
+  Usage: research generate [OPTIONS] <OUTPUT>
 
-    Arguments:
-      <OUTPUT>  The path to the output directory
+  Arguments:
+    <OUTPUT>  The path to the output directory
 
-    Options:
-          --assets <ASSETS>    Path to required site assets (main.css, search.js, tailwind.config.js) [default: ./assets]
-          --download-tailwind  Download Tailwind binary to <ASSETS>/tailwindcss if not found
-      -h, --help               Print help
+  Options:
+        --assets <ASSETS>      Path to required site assets (main.css, search.js, tailwind.config.js) [default: ./assets]
+        --download-tailwind    Download Tailwind binary to <ASSETS>/tailwindcss if not found
+        --timezone <TIMEZONE>  Optional timezone (e.g., "America/New_York", "UTC")
+    -h, --help                 Print help
+
   ```
