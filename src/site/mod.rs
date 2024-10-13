@@ -1,6 +1,8 @@
 use crate::db::{ResearchItem, Tags};
+use chrono_tz::Tz;
 use sailfish::TemplateOnce;
 use serde::Serialize;
+use std::sync::RwLock;
 
 pub struct Site {
     pub index_html: String,
@@ -33,6 +35,8 @@ struct ItemTag<'a> {
     pub item: &'a ResearchItem,
 }
 
+static TIMEZONE: RwLock<Option<Tz>> = RwLock::new(None);
+
 const TITLE: &str = "Pocket Research";
 
 impl Site {
@@ -40,12 +44,17 @@ impl Site {
         tags: &[Tags],
         item_tags: &[(Vec<Tags>, ResearchItem)],
         assets_dir: &str,
+        timezone: Option<Tz>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        {
+            let mut timezone_lock = TIMEZONE.write().unwrap();
+            *timezone_lock = timezone;
+        }
         let ctx = IndexTemplate {
             title: TITLE,
             tags: tags.iter().map(|t| t.tag_name.as_str()).collect::<Vec<_>>(),
             item_tags,
-            assets_dir
+            assets_dir,
         };
 
         let index_html = ctx.render_once()?;

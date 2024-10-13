@@ -50,6 +50,10 @@ pub enum Subcommands {
         /// Favorite items only (Default: false)
         #[arg(short = 'f', long, default_value = "false")]
         favorite_only: bool,
+
+        /// Optional timezone (e.g., "America/New_York", "UTC")
+        #[arg(long)]
+        timezone: Option<String>,
     },
 
     /// Initializes the database
@@ -74,6 +78,10 @@ pub enum Subcommands {
         /// Download Tailwind binary to <ASSETS>/tailwindcss if not found
         #[arg(long, action = clap::ArgAction::SetTrue)]
         download_tailwind: bool,
+
+        /// Optional timezone (e.g., "America/New_York", "UTC")
+        #[arg(long)]
+        timezone: Option<String>,
     },
 
     /// Export data from the current database

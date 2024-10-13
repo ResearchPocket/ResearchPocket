@@ -1,6 +1,10 @@
-use std::{error::Error, fmt};
+use std::{
+    error::Error,
+    fmt::{self, Display},
+};
 
-use chrono::{TimeZone, Utc};
+use chrono::{DateTime, Local, TimeZone, Utc};
+use chrono_tz::Tz;
 use serde::Serialize;
 use sqlx::{sqlite::SqlitePoolOptions, FromRow, Pool, Row, Sqlite};
 
@@ -29,26 +33,43 @@ pub struct ResearchItem {
 
 impl fmt::Display for ResearchItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let formatted_time = Utc
-            .timestamp_opt(self.time_added, 0)
-            .single()
-            .map(|dt| dt.format("%B %d, %Y at %I:%M %p").to_string())
-            .unwrap_or_else(|| "Invalid Date".to_string());
-
         writeln!(f, "Research Item")?;
         writeln!(f, "-------------")?;
         if let Some(id) = self.id {
             writeln!(f, "ID: {}", id)?;
         }
-        writeln!(f, "Title: {}", self.title)?;
-        writeln!(f, "URL: {}", self.uri)?;
-        writeln!(f, "Added: {}", formatted_time)?;
-        writeln!(f, "Favorite: {}", if self.favorite { "Yes" } else { "No" })?;
-        if let Some(lang) = &self.lang {
-            writeln!(f, "Language: {}", lang)?;
+        writeln!(f, "{}", self.to_display_with_timezone(None))
+    }
+}
+
+impl ResearchItem {
+    /// Of the format "21 Aug'21, 5pm"
+    pub fn format_time_added(&self, timezone: Option<Tz>) -> String {
+        let utc_datetime = Utc.timestamp_opt(self.time_added, 0).unwrap();
+        fn format_datetime<Tz: TimeZone>(datetime: DateTime<Tz>) -> String
+        where
+            Tz::Offset: Display,
+        {
+            datetime.format("%d %b'%y, %l%P").to_string()
         }
-        writeln!(f, "Excerpt:")?;
-        writeln!(f, "{}", self.excerpt)
+
+        match timezone {
+            Some(tz) => format_datetime(utc_datetime.with_timezone(&tz)),
+            None => format_datetime(utc_datetime.with_timezone(&Local)),
+        }
+    }
+
+    pub fn to_display_with_timezone(&self, timezone: Option<Tz>) -> String {
+        let time_added = self.format_time_added(timezone);
+        format!(
+            "Title: {}\nURL: {}\nAdded: {}\nFavorite: {}\nLanguage: {}\nExcerpt:\n{}",
+            self.title,
+            self.uri,
+            time_added,
+            if self.favorite { "Yes" } else { "No" },
+            self.lang.as_ref().unwrap_or(&"Unknown".to_string()),
+            self.excerpt
+        )
     }
 }
 
@@ -65,14 +86,6 @@ impl Secrets {
             Some(s) => s,
             None => Self::default(),
         }
-    }
-}
-
-impl ResearchItem {
-    /// Of the format "21 Aug'21, 5pm"
-    pub fn format_time_added(&self) -> String {
-        let date = chrono::DateTime::from_timestamp(self.time_added, 0).unwrap();
-        date.format("%d %b'%y, %l%P").to_string()
     }
 }
 

@@ -1,5 +1,6 @@
 use crate::assets::css::build_css;
 use crate::provider::{Insertable, OnlineProvider, ProviderPocket};
+use chrono_tz::Tz;
 use clap::Parser;
 use cli::{
     AuthArgs, CliArgs, FetchArgs, LocalAddArgs, LocalCommands, LocalFavoriteArgs,
@@ -10,6 +11,7 @@ use provider::local::LocalItem;
 use site::Site;
 use sqlx::migrate::MigrateDatabase;
 use std::path::Path;
+use std::str::FromStr;
 use tokio::fs::{create_dir, metadata, read_to_string, File};
 use tokio::io::AsyncWriteExt;
 
@@ -37,16 +39,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             tags,
             limit,
             favorite_only,
+            timezone,
         }) => {
             let favorite = if *favorite_only { Some(true) } else { None };
-            handle_list_command(&cli_args, tags.as_ref(), favorite, *limit).await?
+            let timezone = timezone
+                .as_ref()
+                .and_then(|tz_str| Tz::from_str(&tz_str).ok());
+            handle_list_command(&cli_args, tags.as_ref(), favorite, *limit, timezone).await?
         }
         Some(Subcommands::Init { path }) => handle_init_command(path, &cli_args).await?,
         Some(Subcommands::Generate {
             output,
             assets,
             download_tailwind,
-        }) => handle_generate_command(output, assets, *download_tailwind, &cli_args).await?,
+            timezone,
+        }) => {
+            let timezone = timezone
+                .as_ref()
+                .and_then(|tz_str| Tz::from_str(&tz_str).ok());
+            handle_generate_command(output, assets, *download_tailwind, timezone, &cli_args)
+                .await?
+        }
         Some(Subcommands::Export { raindrop }) => {
             if *raindrop {
                 let db = DB::init(&cli_args.db).await.map_err(|err| {
@@ -344,6 +357,7 @@ async fn handle_list_command(
     tags: Option<&Vec<String>>,
     favorite: Option<bool>,
     limit: Option<usize>,
+    timezone: Option<Tz>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Handle listing items in the database
     let db = DB::init(&cli_args.db).await.map_err(|err| {
@@ -359,27 +373,29 @@ async fn handle_list_command(
         }
         err
     })?;
+    let mut items: Vec<ResearchItem>;
     if let Some(tags) = tags {
-        let mut items = db.get_all_items_by_tags(tags, favorite).await?;
+        items = db.get_all_items_by_tags(tags, favorite).await?;
         println!("Tags: {:?}", tags);
         println!("Total items: {}", items.len());
         if let Some(limit) = limit {
             items.truncate(limit);
         }
-        println!("Displaying {} items:", items.len());
-        for item in items {
-            println!("{:?}", item);
-        }
     } else {
-        let mut items = db.get_all_items(favorite).await?;
+        items = db.get_all_items(favorite).await?;
         println!("Total items: {}", items.len());
         if let Some(limit) = limit {
             items.truncate(limit);
         }
-        println!("Displaying {} items:", items.len());
-        for item in items {
-            println!("{}", item);
+    }
+    println!("Displaying {} items:", items.len());
+    for item in items {
+        println!("Research Item");
+        println!("-------------");
+        if let Some(id) = item.id {
+            println!("ID: {}", id);
         }
+        println!("{}", item.to_display_with_timezone(timezone));
     }
     Ok(())
 }
@@ -405,6 +421,7 @@ async fn handle_generate_command(
     output_dir: &str,
     assets_dir: &str,
     download_tailwind: bool,
+    timezone: Option<Tz>,
     cli_args: &CliArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Handle generating a static site with the provided options
@@ -430,7 +447,7 @@ async fn handle_generate_command(
     let tags = db.get_all_tags().await?;
     let item_tags = db.get_all_item_tags().await?;
 
-    let site = Site::build(&tags, &item_tags, "./assets")?;
+    let site = Site::build(&tags, &item_tags, "./assets", timezone)?;
 
     eprintln!("Output directory: {output_dir:?}");
     let mut index = File::create(output_dir.join("index.html")).await?;
