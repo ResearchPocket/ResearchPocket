@@ -20,7 +20,7 @@ pub fn platform_register_url() {
 fn register_windows() {
     let executable_path = env::current_exe().unwrap();
     let executable_path_str = executable_path.to_str().unwrap();
-    let reg_cmd = format!("\"{} handle --url \"%1\"\"", executable_path_str);
+    let reg_cmd = format!("{} handle --url \"%1\"", executable_path_str);
     let commands = vec![
         vec!["REG", "ADD", "HKEY_CLASSES_ROOT\\research", "/ve", "/d", "Research Pocket Url Handler", "/f"],
         vec!["REG", "ADD", "HKEY_CLASSES_ROOT\\research\\shell", "/f"],
