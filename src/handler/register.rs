@@ -17,26 +17,54 @@ pub fn platform_register_url() {
 }
 
 #[cfg(target_os = "windows")]
-fn register_windows() -> Result<(), std::io::Error> {
-    let executable_path = env::current_exe()?;
-    let reg_command = format!(
-        r#"REG ADD "HKCU\Software\Classes\research" /ve /d "URL:Research Protocol" /f &&
-        REG ADD "HKCU\Software\Classes\research" /v "URL Protocol" /d "" /f &&
-        REG ADD "HKCU\Software\Classes\research\shell\open\command" /ve /d "\"{:?}\" handle --url \"%1\"" /f"#,
-        executable_path
-    );
+fn register_windows() {
+    let executable_path = env::current_exe().unwrap();
+    let executable_path_str = executable_path.to_str().unwrap();
+    let reg_cmd = format!("\"{} handle --url \"%1\"\"", executable_path_str);
+    let commands = vec![
+        vec!["REG", "ADD", "HKEY_CLASSES_ROOT\\research", "/ve", "/d", "Research Pocket Url Handler", "/f"],
+        vec!["REG", "ADD", "HKEY_CLASSES_ROOT\\research\\shell", "/f"],
+        vec!["REG", "ADD", "HKEY_CLASSES_ROOT\\research\\shell\\open", "/f"],
+        vec![
+            "REG",
+            "ADD",
+            "HKEY_CLASSES_ROOT\\research\\shell\\open\\command",
+            "/ve",
+            "/d",
+            &reg_cmd,
+            "/f",
+        ],
+    ];
 
-    let output = Command::new("cmd").args(&["/C", &reg_command]).output()?;
+    for command in commands {
+        let output = Command::new("cmd")
+            .args(["/C"])
+            .args(command.clone())
+            .output()
+            .expect("Failed to execute command");
 
-    if !output.status.success() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("Failed to register: {:?}", output),
-        ));
+        if output.status.success() {
+            println!("Successfully executed: {:?}", command);
+        } else {
+            panic!(
+                "Failed to execute: {:?}. Error: {}",
+                command,
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
     }
 
+    #[cfg(target_os = "windows")]
+    {
+        use winrt_notification::{Duration, Toast};
+        Toast::new(Toast::POWERSHELL_APP_ID)
+            .title("ResearchPocket Handler")
+            .text1("Handler registered!")
+            .duration(Duration::Short)
+            .show()
+            .expect("Failed to send notification");
+    }
     println!("URL handler registered for Windows");
-    Ok(())
 }
 
 #[cfg(target_os = "macos")]
