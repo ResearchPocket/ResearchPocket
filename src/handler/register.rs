@@ -23,6 +23,7 @@ fn register_windows() {
     let reg_cmd = format!("{} handle --url \"%1\"", executable_path_str);
     let commands = vec![
         vec!["REG", "ADD", "HKEY_CLASSES_ROOT\\research", "/ve", "/d", "Research Pocket Url Handler", "/f"],
+        vec!["REG", "ADD", "HKEY_CLASSES_ROOT\\research", "/v", "URL Protocol", "/d", "", "/f"],
         vec!["REG", "ADD", "HKEY_CLASSES_ROOT\\research\\shell", "/f"],
         vec!["REG", "ADD", "HKEY_CLASSES_ROOT\\research\\shell\\open", "/f"],
         vec![
