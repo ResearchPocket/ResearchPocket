@@ -20,10 +20,11 @@ pub fn platform_unregister_url() {
 
 #[cfg(target_os = "windows")]
 fn unregister_windows() {
-    let reg_command = r#"REG DELETE "HKCU\Software\Classes\research" /f"#;
+    let reg_command = vec!["REG", "DELETE", "HKEY_CLASSES_ROOT\\research", "/f"];
 
     Command::new("cmd")
-        .args(&["/C", reg_command])
+        .arg("/C")
+        .args(reg_command)
         .output()
         .expect("Failed to execute registry command");
 
