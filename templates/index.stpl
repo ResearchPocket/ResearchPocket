@@ -4,41 +4,62 @@
     <% include!("./components/header.stpl"); %>
   </head>
   <body>
-    <div class="container mx-auto px-4">
-      <header class="text-center py-5">
-        <h1 class="text-5xl font-bold"><%= self.title %></h1>
-        <p class="my-3">Your personal research library</p>
-        <a href="./search.html" class="bg-blue-500 hover:bg-blue-700 font-bold py-2 px-4 rounded">Search</a>
+    <div class="container mx-auto px-4 max-w-3xl">
+      <header class="py-8 border-b">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 class="text-2xl font-semibold"><%= self.title %></h1>
+            <p class="mt-1">Your research collection</p>
+          </div>
+          <a href="./search.html" class="text-blue-600 hover:text-blue-800 font-medium">
+            Search →
+          </a>
+        </div>
       </header>
-      <section>
-        <details class="container mx-auto px-4">
-          <summary class="text-xl font-bold">Tags</summary>
-          <ul class="inline-flex flex-wrap gap-2"><% for tag in self.tags { %>
-          <li class="pointer bg-gray-200 p-2 rounded"><%= tag %></li><% } %>
-          </ul>
-        </details>
-      </section>
-      <main>
-        <ul class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          <% for (tags, item) in self.item_tags { %>
-          <li style="background-color:#eee" class="p-2 rounded flex flex-col gap-2">
-            <h3 class="text-lg font-bold break-words"> <%=&item.title%> </h3>
-            <p><%=&item.format_time_added(TIMEZONE.read().unwrap().clone())%></p>
-            <p class="text-sm text-gray-500"><%=
-                 match item.uri.split('/').nth(2) {
-                   Some(domain) if !domain.is_empty() => domain.to_string(),
-                   _ => item.uri.chars().take(10).collect::<String>()
-                 }
-               %></p>
-            <ul class="inline-flex flex-wrap gap-2" ><% for tag in tags { %>
-              <li class="pointer p-2 rounded" style="background-color:#ccf"><%= tag.tag_name %></li><% } %>
-            </ul>
-            <a href="<%=&item.uri%>" target="_blank">
-              <p class="break-words"><%=&item.excerpt%></p>
-              <span class="text-blue-500 hover:underline">Read more</span>
-            </a>
-          </li>
+
+      <details class="my-6">
+        <summary class="text-sm font-medium text-gray-500 mb-3">
+          Tags
+        </summary>
+        <div class="flex flex-wrap gap-2">
+          <% for tag in self.tags { %>
+          <span class="text-xs px-2.5 py-1 text-gray-500"><%= tag %></span>
           <% } %>
+        </div>
+      </details>
+
+      <main class="divide-y">
+        <% for (tags, item) in self.item_tags { %>
+        <article class="py-5">
+          <div class="flex justify-between items-start gap-2">
+            <div class="flex-1 min-w-0">
+              <a href="<%=&item.uri%>" target="_blank" class="group">
+                <h3 class="text-base font-medium group-hover:text-blue-600 truncate">
+                  <%=&item.title%>
+                </h3>
+              </a>
+              <p class="text-sm text-gray-500 mt-1"><%=&item.excerpt%></p>
+              <div class="mt-2 text-xs text-gray-400">
+                <%=&item.format_time_added(TIMEZONE.read().unwrap().clone())%>
+                <span class="mx-1">·</span>
+                <%=
+                  match item.uri.split('/').nth(2) {
+                    Some(domain) if !domain.is_empty() => domain.to_string(),
+                    _ => item.uri.chars().take(10).collect::<String>()
+                  }
+                %>
+              </div>
+            </div>
+            <% if !tags.is_empty() { %>
+            <div class="flex flex-col items-end gap-1">
+              <% for tag in tags { %>
+              <span class="text-xs px-2 py-0.5 text-gray-500"><%= tag.tag_name %></span>
+              <% } %>
+            </div>
+            <% } %>
+          </div>
+        </article>
+        <% } %>
       </main>
     </div>
   </body>

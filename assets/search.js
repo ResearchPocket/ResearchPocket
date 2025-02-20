@@ -4,68 +4,152 @@ import Fuse from "https://cdn.jsdelivr.net/npm/fuse.js@7.0.0/dist/fuse.mjs";
 const options = {
   includeScore: true,
   keys: ["tags", "excerpt", "title"],
-  logicalOperator: "or",
+  shouldSort: true,
+  threshold: 0.4,
   useExtendedSearch: true,
 };
 
 const fuse = new Fuse(item_tags, options);
+const searchForm = document.getElementById("searchForm");
+const searchInput = document.getElementById("searchInput");
+const resultsContainer = document.getElementById("resultsContainer");
+const resultTemplate = document.getElementById("resultTemplate");
+const tagInput = document.getElementById("tagInput");
+const tagsContainer = document.getElementById("tagsContainer");
+
+let activeTags = [];
 
 /**
  * @param {string} searchQuery
  * @returns {item_tag[]}
  */
 function searchItems(searchQuery) {
-  const tags = searchQuery.split(",").map((tag) => tag.trim());
-  const pattern = tags.map(/** @param {string} tag */(tag) => `'${tag}`).join(
-    "|",
-  );
-  const results = fuse.search(pattern);
-
-  return results.map(/** @param {{item: item_tag}} result */(result) =>
-    result.item
-  );
+  const results = fuse.search(searchQuery);
+  return results.map((result) => result.item);
 }
-
-const searchInput = document.getElementById("searchInput");
-const resultsContainer = document.getElementById("resultsContainer");
 
 /**
- * @param {Event} e
+ * @param {item_tag[]} items
  */
-function handleSearch(e) {
-  e.preventDefault();
-  const searchQuery = searchInput.value;
-  const matchedItems = searchItems(searchQuery);
+function renderResults(items) {
+  const fragment = document.createDocumentFragment();
+
+  items.forEach((item) => {
+    const clone = resultTemplate.content.cloneNode(true);
+    clone.querySelector("a").href = item.uri;
+    clone.querySelector("h3").textContent = item.title;
+    clone.querySelector("p").textContent = item.excerpt || "No excerpt available";
+    clone.querySelector(".time-added").textContent = new Date(item.time_added).toLocaleDateString();
+
+    const domain = item.uri.split('/')[2];
+    clone.querySelector(".domain").textContent = domain || item.uri.slice(0, 10);
+    
+    const tagsContainer = clone.querySelector(".tags-container");
+    item.tags.forEach((tag) => {
+      const span = document.createElement("span");
+      span.className = "text-xs px-2 py-0.5 text-gray-500";
+      span.textContent = tag;
+      tagsContainer.appendChild(span);
+    });
+
+    fragment.appendChild(clone);
+  });
 
   resultsContainer.innerHTML = "";
-
-  matchedItems.forEach((item) => {
-    const itemElement = document.createElement("li");
-    itemElement.style = "background-color:#eee";
-    itemElement.className = "p-2 rounded flex flex-col gap-2 shadow";
-
-    const tagsHtml = item.tags.map((tag) =>
-      `<li class="pointer p-2 rounded" style="background-color:#ccf">${tag}</li>`
-    ).join("");
-    const domain = item.uri.split('/')[2];
-    const domain_str = domain && domain.length > 0 ? domain : item.uri.slice(0, 10);
-    itemElement.innerHTML = `
-<h3 class="text-lg font-bold break-words">${item.title}</h3>
-<p class="text-sm text-gray-500">${domain_str}</p>
-<ul class="inline-flex flex-wrap gap-2" >
-${tagsHtml}
-</ul>
-<a href="${item.uri}" target="_blank">
-<p class="break-words">${item.excerpt || "No excerpt available"}</p>
-<span class="text-blue-500 hover:underline">Read more</span>
-</a>
-`;
-    resultsContainer.appendChild(itemElement);
-  });
-  return false;
+  resultsContainer.appendChild(fragment);
 }
 
-document.getElementById("searchForm").addEventListener(
-  "submit",
-  handleSearch,
-);
+/**
+ * Debounce helper
+ * @param {Function} func
+ * @param {number} wait
+ */
+function debounce(func, wait) {
+  let timeout;
+  return function (...args) {
+    clearTimeout(timeout);
+    timeout = setTimeout(() => func.apply(this, args), wait);
+  };
+}
+
+/**
+ * Filter results based on user input
+ * @param {item_tag[]} items 
+ * @param {Object} filters
+ * @returns {item_tag[]}
+ */
+function filterResults(items, filters) {
+  let filteredItems = items;
+
+  if (filters.tags.length > 0) {
+    filteredItems = filteredItems.filter(item => filters.tags.every(tag => item.tags.includes(tag)));
+  }
+
+  if (filters.dateFrom) {
+    const dateFrom = new Date(filters.dateFrom);
+    filteredItems = filteredItems.filter(item => new Date(item.time_added) >= dateFrom);
+  }
+
+  if (filters.dateTo) {
+    const dateTo = new Date(filters.dateTo);
+    filteredItems = filteredItems.filter(item => new Date(item.time_added) <= dateTo);
+  }
+
+  if (filters.favorite) {
+    filteredItems = filteredItems.filter(item => item.favorite);
+  }
+
+  return filteredItems;
+}
+
+/**
+ * Handle tag input keypress
+ * @param {KeyboardEvent} e 
+ */
+function handleTagInputKeypress(e) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const tagValue = tagInput.value.trim();
+    if (tagValue && !activeTags.includes(tagValue)) {
+      activeTags.push(tagValue);
+      const tagElem = document.createElement("span");
+      tagElem.className = "tag";
+      tagElem.textContent = tagValue;
+      tagElem.addEventListener("click", () => {
+        activeTags = activeTags.filter(tag => tag !== tagValue);
+        tagElem.remove();
+        handleFilterChange();
+      });
+      tagsContainer.appendChild(tagElem);
+      tagInput.value = "";
+      handleFilterChange();
+    }
+  }
+}
+
+/**
+ * Handle search input and filters
+ */
+function handleFilterChange() {
+  const searchQuery = searchInput.value.trim();
+  let matchedItems = searchItems(searchQuery);
+
+  const filters = {
+    tags: activeTags,
+    dateFrom: document.getElementById("dateFrom").value,
+    dateTo: document.getElementById("dateTo").value,
+    favorite: document.getElementById("favoriteFilter").checked,
+  };
+
+  matchedItems = filterResults(matchedItems, filters);
+  renderResults(matchedItems);
+}
+
+// Attach event listeners
+searchInput.addEventListener("input", debounce(handleFilterChange, 300));
+tagInput.addEventListener("keypress", handleTagInputKeypress);
+searchForm.addEventListener("input", debounce(handleFilterChange, 300));
+searchForm.addEventListener("submit", (e) => {
+  e.preventDefault();
+  handleFilterChange();
+});
