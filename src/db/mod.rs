@@ -74,6 +74,7 @@ impl ResearchItem {
 }
 
 #[derive(FromRow, Default)]
+#[allow(dead_code)]
 pub struct Secrets {
     pub pocket_consumer_key: Option<String>,
     pub pocket_access_token: Option<String>,
@@ -82,10 +83,7 @@ pub struct Secrets {
 
 impl Secrets {
     pub fn new(s: Option<Self>) -> Self {
-        match s {
-            Some(s) => s,
-            None => Self::default(),
-        }
+        s.unwrap_or_default()
     }
 }
 

@@ -28,7 +28,7 @@ where
 {
     struct StringOrNumber<T>(std::marker::PhantomData<T>);
 
-    impl<'de, T> serde::de::Visitor<'de> for StringOrNumber<T>
+    impl<T> serde::de::Visitor<'_> for StringOrNumber<T>
     where
         T: std::str::FromStr,
         T::Err: std::fmt::Display,

@@ -5,25 +5,86 @@
   </head>
   <body>
     <% include!("./components/item_tags.stpl"); %>
-
-    <div class="container mx-auto px-4">
-      <header class="text-center py-5">
-        <h1 class="text-5xl font-bold"><%= self.title %></h1>
-        <p class="my-3">Your personal research library</p>
-        <a href="./index.html" class="bg-blue-500 hover:bg-blue-700 font-bold py-2 px-4 rounded">Index</a>
-      </header>
-      <main>
-        <div class="max-w-xl mx-auto">
-          <form class="flex mb-4 gap-4" id="searchForm">
-            <input type="text" id="searchInput" placeholder="Enter tags or excerpt..." class="flex-grow p-2 border rounded-l">
-            <button id="searchBtn" class="bg-blue-500 text-white px-4 py-2 rounded-r">Search</button>
-          </form>
-          <ul id="resultsContainer" class="space-y-4"></ul>
+    <div class="container mx-auto px-4 max-w-3xl">
+      <header class="py-8 border-b">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h1 class="text-2xl font-semibold">Advanced Search</h1>
+            <p class="mt-1">Filter by tags, date range, and favorites</p>
+          </div>
+          <a href="./index.html" class="text-blue-600 hover:text-blue-800 font-medium">
+            Index →
+          </a>
         </div>
-      </main>
+      </header>
+
+      <!-- Search Filters -->
+      <section class="my-6">
+        <form class="space-y-4" id="searchForm">
+          <input 
+            type="text" 
+            id="searchInput"
+            placeholder="Search by tags or content..."
+            class="w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-200 focus:border-blue-500"
+            aria-label="Search input"
+          >
+
+          <!-- Tag Filter -->
+          <div class="flex flex-wrap gap-2 rounded-md border p-2">
+            <div id="tagsContainer" class="flex flex-wrap gap-2"></div>
+            <input 
+              type="text" 
+              id="tagInput"
+              placeholder="Add tags..." 
+              aria-label="Tag input"
+              class="flex-grow p-2 border rounded-md"
+            />
+          </div>
+
+          <!-- Date Range Filter -->
+          <div class="flex flex-col sm:flex-row gap-4">
+            <div>
+              <label class="block text-sm font-medium">From</label>
+              <input type="date" id="dateFrom" class="p-2 border rounded-md">
+            </div>
+            <div>
+              <label class="block text-sm font-medium">To</label>
+              <input type="date" id="dateTo" class="p-2 border rounded-md">
+            </div>
+          </div>
+
+          <!-- Favorite Filter -->
+          <div class="flex items-center">
+            <input type="checkbox" id="favoriteFilter" class="h-4 w-4 text-blue-600 border-gray-300 rounded">
+            <label for="favoriteFilter" class="ml-2 block text-sm">Show Favorites Only</label>
+          </div>
+        </form>
+      </section>
+
+      <!-- Search Results -->
+      <div id="resultsContainer" class="divide-y">
+        <!-- Dynamic results will be inserted here -->
+        <template id="resultTemplate">
+          <article class="py-4">
+            <div class="flex justify-between items-start gap-2">
+              <div class="flex-1 min-w-0">
+                <a href="#" class="group" target="_blank">
+                  <h3 class="text-base font-medium group-hover:text-blue-600 truncate"></h3>
+                </a>
+                <p class="text-sm mt-1"></p>
+                <div class="mt-2 text-xs">
+                  <span class="time-added"></span>
+                  <span class="mx-1">·</span>
+                  <span class="domain"></span>
+                </div>
+              </div>
+              <div class="flex flex-col items-end gap-1 tags-container"></div>
+            </div>
+          </article>
+        </template>
+      </div>
     </div>
 
     <script type="module" src="<%= self.assets_dir %>/search.js"></script>
-
   </body>
 </html>

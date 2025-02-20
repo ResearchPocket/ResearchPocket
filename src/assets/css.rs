@@ -4,41 +4,37 @@ use std::path::{self, Path};
 use std::process::Command;
 use std::{env, io};
 
-
 pub async fn build_css(
-    input_css_file: &Path,
-    tailwind_config_file: &Path,
-    output_css_file: &Path,
+    output_dir: &Path,
+    assets_dir: &Path,
     download_tailwind: bool,
+    major_version: u8,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let binary_path = {
-        let tailwind_path = tailwind_path();
-        if tailwind_path.is_ok() {
-            tailwind_path
-        } else if download_tailwind {
-            download_tailwind_binary(path::Path::new(input_css_file).parent().unwrap()).await
-        } else {
-            tailwind_path
-        }
-    }?;
+    let binary_path = if download_tailwind {
+        download_tailwind_binary(assets_dir, major_version).await?
+    } else {
+        tailwind_path()?
+    };
 
     eprintln!("Building CSS with Tailwind: {binary_path}");
-
     let output = Command::new(binary_path)
         .args([
-            "-c",
-            tailwind_config_file.to_str().unwrap(),
-            "-i",
-            input_css_file.to_str().unwrap(),
-            "-o",
-            output_css_file.to_str().unwrap(),
+            "--input",
+            assets_dir.join("main.css").to_str().unwrap(),
+            "--output",
+            Path::new("./assets").join("dist.css").to_str().unwrap(),
+            "--cwd",
+            output_dir.to_str().unwrap(),
             "--minify",
         ])
         .output()?;
     std::io::stderr().write_all(&output.stderr)?;
-    output.status.success().then_some(true).unwrap_or_else(|| {
-        panic!("Tailwind failed to compile {input_css_file:?} -> {output_css_file:?}")
-    });
+    if !output.status.success() {
+        panic!(
+            "Tailwind failed to compile {}",
+            assets_dir.join("main.css").display()
+        );
+    }
 
     Ok(())
 }
@@ -59,6 +55,7 @@ fn tailwind_path() -> Result<String, Box<dyn std::error::Error>> {
 
 pub async fn download_tailwind_binary(
     binary_path: &path::Path,
+    major_version: u8,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let double = match (env::consts::OS, env::consts::ARCH) {
         ("linux", "x86_64") => "linux-x64",
@@ -71,20 +68,35 @@ pub async fn download_tailwind_binary(
         _ => "linux-x64",
     };
     let binary_path = binary_path.join("tailwindcss");
+    // tested versions that i'm sure will work
+    let version_tag = match major_version {
+        4 => "v4.0.7",
+        _ => return Err(format!("Unsupported Tailwind major version: {major_version}").into()),
+    };
     if !binary_path.exists() {
-        eprintln!("Downloading Tailwind binary to {binary_path:?}");
-        let url = format!("https://github.com/tailwindlabs/tailwindcss/releases/latest/download/tailwindcss-{double}");
-        let response = reqwest::get(url).await?;
-        let mut file = File::create(&binary_path)?;
-        let mut content = io::Cursor::new(response.bytes().await?);
-        io::copy(&mut content, &mut file)?;
+        eprintln!("Downloading Tailwind {version_tag} binary to {binary_path:?}");
+        let url = format!(
+            "https://github.com/tailwindlabs/tailwindcss/releases/download/{version_tag}/tailwindcss-{double}"
+        );
+        let response = reqwest::get(&url).await?;
+        if response.status().is_success() {
+            let mut file = File::create(&binary_path)?;
+            let mut content = io::Cursor::new(response.bytes().await?);
+            io::copy(&mut content, &mut file)?;
 
-        // On non-Windows platforms, we need to mark the file as executable
-        #[cfg(target_family = "unix")]
-        {
-            use std::os::unix::prelude::PermissionsExt;
-            let user_execute = std::fs::Permissions::from_mode(0o755);
-            std::fs::set_permissions(&binary_path, user_execute)?;
+            // On non-Windows platforms, we need to mark the file as executable
+            #[cfg(target_family = "unix")]
+            {
+                use std::os::unix::prelude::PermissionsExt;
+                let user_execute = std::fs::Permissions::from_mode(0o755);
+                std::fs::set_permissions(&binary_path, user_execute)?;
+            }
+        } else {
+            return Err(format!(
+                "Failed to download Tailwind {version_tag} for {double}: {}",
+                response.status()
+            )
+            .into());
         }
     } else {
         eprintln!("Tailwind binary already exists at {binary_path:?}");

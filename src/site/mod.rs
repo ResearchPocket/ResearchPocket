@@ -26,6 +26,7 @@ struct SearchTemplate<'a> {
     title: &'a str,
     assets_dir: &'a str,
     item_tags: Vec<ItemTag<'a>>,
+    tags: Vec<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -50,11 +51,12 @@ impl Site {
             let mut timezone_lock = TIMEZONE.write().unwrap();
             *timezone_lock = timezone;
         }
+        let tags = tags.iter().map(|t| t.tag_name.as_str()).collect::<Vec<_>>();
         let ctx = IndexTemplate {
             title: TITLE,
-            tags: tags.iter().map(|t| t.tag_name.as_str()).collect::<Vec<_>>(),
             item_tags,
             assets_dir,
+            tags: tags.clone(),
         };
 
         let index_html = ctx.render_once()?;
@@ -71,6 +73,7 @@ impl Site {
             item_tags,
             assets_dir,
             title: "Search",
+            tags: tags.clone(),
         };
         let search_html = ctx.render_once()?;
         Ok(Self {
