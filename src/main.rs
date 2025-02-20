@@ -10,10 +10,12 @@ use db::{ResearchItem, Tags, DB};
 use provider::local::LocalItem;
 use site::Site;
 use sqlx::migrate::MigrateDatabase;
+use std::env;
 use std::path::Path;
 use std::str::FromStr;
 use tokio::fs::{create_dir, metadata, read_to_string, File};
 use tokio::io::AsyncWriteExt;
+use util::absolute_path;
 
 mod assets;
 mod cli;
@@ -44,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let favorite = if *favorite_only { Some(true) } else { None };
             let timezone = timezone
                 .as_ref()
-                .and_then(|tz_str| Tz::from_str(&tz_str).ok());
+                .and_then(|tz_str| Tz::from_str(tz_str).ok());
             handle_list_command(&cli_args, tags.as_ref(), favorite, *limit, timezone).await?
         }
         Some(Subcommands::Init { path }) => handle_init_command(path, &cli_args).await?,
@@ -56,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }) => {
             let timezone = timezone
                 .as_ref()
-                .and_then(|tz_str| Tz::from_str(&tz_str).ok());
+                .and_then(|tz_str| Tz::from_str(tz_str).ok());
             handle_generate_command(output, assets, *download_tailwind, timezone, &cli_args)
                 .await?
         }
@@ -428,11 +430,11 @@ async fn handle_generate_command(
     metadata(&assets_dir)
         .await
         .unwrap_or_else(|_| panic!("Invalid assets directory: {assets_dir}"));
-    const REQUIRED_FILES: [&str; 3] = ["main.css", "search.js", "tailwind.config.js"];
+    const REQUIRED_FILES: [&str; 2] = ["main.css", "search.js"];
     for file in REQUIRED_FILES {
         metadata(&Path::new(&assets_dir).join(file))
             .await
-            .unwrap_or_else(|_| panic!("Missing required file: {file}"));
+            .unwrap_or_else(|_| panic!("Missing required file in assets directory: {file}"));
     }
 
     let output_dir = Path::new(output_dir);
@@ -440,9 +442,8 @@ async fn handle_generate_command(
         create_dir(output_dir).await?;
     }
 
-    let db = DB::init(&cli_args.db).await.map_err(|err| {
+    let db = DB::init(&cli_args.db).await.inspect_err(|_err| {
         eprintln!("Please set the corrdct database path with --db");
-        err
     })?;
     let tags = db.get_all_tags().await?;
     let item_tags = db.get_all_item_tags().await?;
@@ -457,10 +458,13 @@ async fn handle_generate_command(
     search.write_all(site.search_html.as_bytes()).await?;
 
     build_css(
-        &Path::new(assets_dir).join("main.css"),
-        &Path::new(assets_dir).join("tailwind.config.js"),
-        &Path::new(output_dir).join("assets").join("dist.css"),
+        output_dir,
+        &absolute_path(
+            env::current_dir().expect("Failed to get current directory"),
+            Path::new(assets_dir),
+        ),
         download_tailwind,
+        4,
     )
     .await?;
 
@@ -473,7 +477,7 @@ async fn handle_generate_command(
     Ok(())
 }
 
-async fn fetch_from_pocket<'a>(
+async fn fetch_from_pocket(
     db_url: &str,
     consumer_key: String,
     access_token: String,
