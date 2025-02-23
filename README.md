@@ -1,4 +1,9 @@
-<h1 align="center">Research Pocket 🔖</h1>
+<div class="oranda-hide" align="center">
+
+# Research Pocket 🔖
+
+</div>
+
 <div align="center">
   <strong> The <em>last</em> save-it-later tool you'll ever need </strong>
 </div>
@@ -148,6 +153,17 @@ To use this bookmarklet:
 Now, when you click this bookmarklet on any web page, it will prompt you for
 tags and then save the page to your Research Pocket
 
+## Adding Notes
+
+You can add notes to any saved item locallh the `notes` command:
+
+```sh
+# Add or update notes for an item
+$ research notes <url> "Your notes here"
+```
+
+Notes will be displayed when listing items and included in CSV exports. For existing databases, the notes feature will be automatically enabled the next time you run any command.
+
 ## Contributing
 
 We welcome contributions to ResearchPocket! If you're interested in helping out,
@@ -178,21 +194,22 @@ Hacktoberfest participation, please check out our
   Usage: research [OPTIONS] [COMMAND]
 
   Commands:
-      pocket    Pocket related actions
-      local     Add a new item to the database stored locally
-      fetch     Gets all data from authenticated providers
-      list      Lists all items in the database
-      init      Initializes the database
-      generate  Generate a static site
-      export    Export data from the current database
-      handle    Handle operations related to the research:// URL scheme
-      help      Print this message or the help of the given subcommand(s)
+    pocket    Pocket related actions
+    local     Add a new item to the database stored locally
+    fetch     Gets all data from authenticated providers
+    list      Lists all items in the database
+    init      Initializes the database
+    generate  Generate a static site
+    export    Export data from the current database
+    handle    Handle operations related to the research:// URL scheme
+    notes     Add or update notes for an item
+    help      Print this message or the help of the given subcommand(s)
 
   Options:
-          --db <DB>   Database url [env: DATABASE_URL=] [default: ./research.sqlite]
-      -d, --debug...  Turn debugging information on
-      -h, --help      Print help
-      -V, --version   Print version
+        --db <DB>   Database url [env: DATABASE_URL=] [default: ./research.sqlite]
+    -d, --debug...  Turn debugging information on
+    -h, --help      Print help
+    -V, --version   Print version
   ```
 
 - List

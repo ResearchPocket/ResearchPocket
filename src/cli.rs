@@ -111,6 +111,9 @@ pub enum Subcommands {
         #[arg(long)]
         url: Option<String>,
     },
+
+    /// Add or update notes for an item
+    Notes(NotesArgs),
 }
 
 #[derive(Args)]
@@ -202,6 +205,17 @@ pub struct LocalFavoriteArgs {
     /// Mark the item as favorite or not (Default: true)
     #[arg(short, long, default_value = "true")]
     pub mark: bool,
+}
+
+#[derive(Args)]
+pub struct NotesArgs {
+    /// The URL of the item to add notes to
+    #[arg(index = 1)]
+    pub url: String,
+
+    /// The notes to add to the item
+    #[arg(index = 2)]
+    pub notes: String,
 }
 
 #[derive(Subcommand)]

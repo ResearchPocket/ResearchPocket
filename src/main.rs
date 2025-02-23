@@ -3,7 +3,7 @@ use crate::provider::{Insertable, OnlineProvider, ProviderPocket};
 use chrono_tz::Tz;
 use clap::Parser;
 use cli::{
-    AuthArgs, CliArgs, FetchArgs, LocalAddArgs, LocalCommands, LocalFavoriteArgs,
+    AuthArgs, CliArgs, FetchArgs, LocalAddArgs, LocalCommands, LocalFavoriteArgs, NotesArgs,
     PocketAddArgs, PocketCommands, PocketFavoriteArgs, Subcommands,
 };
 use db::{ResearchItem, Tags, DB};
@@ -64,21 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         Some(Subcommands::Export { raindrop, output }) => {
             if *raindrop {
-                let db = DB::init(&cli_args.db).await.map_err(|err| {
-                    match err {
-                        sqlx::Error::Database(..) => {
-                            eprintln!("Database not found");
-                            eprintln!("Please set the database corrdct path with --db");
-                            eprintln!(
-                                "Or consider initializing the database with the 'init' command"
-                            );
-                        }
-                        _ => {
-                            eprintln!("Unknown error: {err:?}");
-                        }
-                    }
-                    err
-                })?;
+                let db = DB::init(&cli_args.db).await.map_err(handle_db_error)?;
 
                 if output == "-" {
                     db.export_to_csv(None).await?;
@@ -101,6 +87,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 handler::handle_url(url).await?;
             }
         }
+        Some(Subcommands::Notes(NotesArgs { url, notes })) => {
+            let db = DB::init(&cli_args.db).await.map_err(handle_db_error)?;
+            if db.get_item_id(&url).await?.is_none() {
+                eprintln!("Item with URL {} not found in the database", url);
+                return Ok(());
+            }
+            db.update_notes(&url, &notes).await?;
+            println!("Notes updated successfully!");
+        }
         None => {
             eprintln!("No subcommand provided");
             eprintln!("Please provide a subcommand");
@@ -114,19 +109,7 @@ async fn handle_local_command(
     command: &LocalCommands,
     cli_args: &CliArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let db = DB::init(&cli_args.db).await.map_err(|err| {
-        match err {
-            sqlx::Error::Database(..) => {
-                eprintln!("Database not found");
-                eprintln!("Please set the database corrdct path with --db");
-                eprintln!("Or consider initializing the database with the 'init' command");
-            }
-            _ => {
-                eprintln!("Unknown error: {err:?}");
-            }
-        }
-        err
-    })?;
+    let db = DB::init(&cli_args.db).await.map_err(handle_db_error)?;
     let provider_id = db.get_provider_id("local").await?;
     match command {
         LocalCommands::Add(LocalAddArgs {
@@ -187,22 +170,7 @@ async fn handle_pocket_command(
 ) -> Result<(), Box<dyn std::error::Error>> {
     match pocket_command {
         PocketCommands::Auth(AuthArgs { key }) => {
-            // Handle authentication with the provided consumer key
-            let db = DB::init(&cli_args.db).await.map_err(|err| {
-                match err {
-                    sqlx::Error::Database(..) => {
-                        eprintln!("Database not found");
-                        eprintln!("Please set the database corrdct path with --db");
-                        eprintln!(
-                            "Or consider initializing the database with the 'init' command"
-                        );
-                    }
-                    _ => {
-                        eprintln!("Unknown error: {err:?}");
-                    }
-                }
-                err
-            })?;
+            let db = DB::init(&cli_args.db).await.map_err(handle_db_error)?;
 
             let provider = ProviderPocket {
                 consumer_key: key.to_string(),
@@ -223,21 +191,7 @@ async fn handle_pocket_command(
             access,
         }) => {
             // Handle adding an item to Pocket with the provided URI and tags
-            let db = DB::init(&cli_args.db).await.map_err(|err| {
-                match err {
-                    sqlx::Error::Database(..) => {
-                        eprintln!("Database not found");
-                        eprintln!("Please set the database corrdct path with --db");
-                        eprintln!(
-                            "Or consider initializing the database with the 'init' command"
-                        );
-                    }
-                    _ => {
-                        eprintln!("Unknown error: {err:?}");
-                    }
-                }
-                err
-            })?;
+            let db = DB::init(&cli_args.db).await.map_err(handle_db_error)?;
             let secrets = db.get_secrets().await?;
             let consumer_key = secrets.pocket_consumer_key.or(key.clone()).expect(
                 "Consumer key not found in the database, consider generating one from https://getpocket.com/developer/apps/new and running `pocket auth`",
@@ -278,6 +232,7 @@ async fn handle_pocket_command(
                 time_added: chrono::Utc::now().timestamp(),
                 favorite: false,
                 lang: None,
+                notes: None,
             };
             let provider_id = db.get_provider_id("pocket").await?;
             println!("Item: {insertable_item:?}");
@@ -293,21 +248,7 @@ async fn handle_pocket_command(
             key,
         }) => {
             // Handle adding an item to Pocket with the provided URI and tags
-            let db = DB::init(&cli_args.db).await.map_err(|err| {
-                match err {
-                    sqlx::Error::Database(..) => {
-                        eprintln!("Database not found");
-                        eprintln!("Please set the database corrdct path with --db");
-                        eprintln!(
-                            "Or consider initializing the database with the 'init' command"
-                        );
-                    }
-                    _ => {
-                        eprintln!("Unknown error: {err:?}");
-                    }
-                }
-                err
-            })?;
+            let db = DB::init(&cli_args.db).await.map_err(handle_db_error)?;
             let secrets = db.get_secrets().await?;
             let consumer_key = secrets.pocket_consumer_key.or(key.clone()).expect(
                 "Consumer key not found in the database, consider generating one from https://getpocket.com/developer/apps/new and running `pocket auth`",
@@ -337,19 +278,7 @@ async fn handle_fetch_command(
     limit: Option<usize>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Handle fetching data from authenticated providers
-    let db = DB::init(&cli_args.db).await.map_err(|err| {
-        match err {
-            sqlx::Error::Database(..) => {
-                eprintln!("Database not found");
-                eprintln!("Please set the database corrdct path with --db");
-                eprintln!("Or consider initializing the database with the 'init' command");
-            }
-            _ => {
-                eprintln!("Unknown error: {err:?}");
-            }
-        }
-        err
-    })?;
+    let db = DB::init(&cli_args.db).await.map_err(handle_db_error)?;
     let secrets = db.get_secrets().await?;
     let consumer_key = secrets.pocket_consumer_key.expect("Consumer key not found in the database, consider generating one from https://getpocket.com/developer/apps/new and running `pocket auth`");
     let access_token = secrets
@@ -367,19 +296,7 @@ async fn handle_list_command(
     timezone: Option<Tz>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Handle listing items in the database
-    let db = DB::init(&cli_args.db).await.map_err(|err| {
-        match err {
-            sqlx::Error::Database(..) => {
-                eprintln!("Database not found");
-                eprintln!("Please set the database corrdct path with --db");
-                eprintln!("Or consider initializing the database with the 'init' command");
-            }
-            _ => {
-                eprintln!("Unknown error: {err:?}");
-            }
-        }
-        err
-    })?;
+    let db = DB::init(&cli_args.db).await.map_err(handle_db_error)?;
     let mut items: Vec<ResearchItem>;
     if let Some(tags) = tags {
         items = db.get_all_items_by_tags(tags, favorite).await?;
@@ -411,7 +328,6 @@ async fn handle_init_command(
     db_path: &str,
     _cli_args: &CliArgs,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Handle initializing the database at the provided path
     let db_url = {
         let path = Path::new(&db_path).join("research.sqlite");
         path.to_str().expect("Invalid db path").to_owned()
@@ -447,9 +363,7 @@ async fn handle_generate_command(
         create_dir(output_dir).await?;
     }
 
-    let db = DB::init(&cli_args.db).await.inspect_err(|_err| {
-        eprintln!("Please set the corrdct database path with --db");
-    })?;
+    let db = DB::init(&cli_args.db).await.map_err(handle_db_error)?;
     let tags = db.get_all_tags().await?;
     let item_tags = db.get_all_item_tags().await?;
 
@@ -510,4 +424,25 @@ async fn fetch_from_pocket(
     }
 
     Ok(())
+}
+
+fn handle_db_error(err: sqlx::Error) -> sqlx::Error {
+    match &err {
+        sqlx::Error::Database(dberr) => {
+            if dberr.message().contains("no such column") {
+                eprintln!("Database schema needs updating. Please run:");
+                eprintln!("pocket-research init <path-to-db>");
+                eprintln!("\nThis will apply all pending migrations.");
+            } else {
+                eprintln!("Database error: {}", dberr);
+            }
+        }
+        sqlx::Error::PoolTimedOut => {
+            eprintln!("Database connection timed out");
+        }
+        _ => {
+            eprintln!("Unknown database error: {}", err);
+        }
+    }
+    err
 }

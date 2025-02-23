@@ -95,6 +95,7 @@ impl Insertable for PocketItem {
             time_added: self.time_added.unwrap_or(Utc::now()).timestamp(),
             favorite: self.favorite.unwrap_or(false),
             lang: self.lang.clone(),
+            notes: None,
         }
     }
 
