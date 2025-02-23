@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             handle_generate_command(output, assets, *download_tailwind, timezone, &cli_args)
                 .await?
         }
-        Some(Subcommands::Export { raindrop }) => {
+        Some(Subcommands::Export { raindrop, output }) => {
             if *raindrop {
                 let db = DB::init(&cli_args.db).await.map_err(|err| {
                     match err {
@@ -79,8 +79,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                     err
                 })?;
-                db.export_to_csv("raindrop_export.csv").await?;
-                println!("Exported to raindrop_export.csv");
+
+                if output == "-" {
+                    db.export_to_csv(None).await?;
+                } else {
+                    db.export_to_csv(Some(output)).await?;
+                    println!("Exported to {output}");
+                }
             }
         }
         Some(Subcommands::Handle {

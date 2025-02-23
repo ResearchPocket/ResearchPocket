@@ -5,8 +5,11 @@ use std::{
 
 use chrono::{DateTime, Local, TimeZone, Utc};
 use chrono_tz::Tz;
+use csv::WriterBuilder;
 use serde::Serialize;
 use sqlx::{sqlite::SqlitePoolOptions, FromRow, Pool, Row, Sqlite};
+use std::fs::File;
+use std::io;
 
 #[derive(Clone, FromRow, Debug)]
 #[allow(dead_code)]
@@ -255,9 +258,16 @@ impl DB {
     /// url column is required, others are optional
     /// use / to specify nested folder, like a/b/c
     /// to have multiple tags just put them in quotes, like "tag1, tag2"
-    pub async fn export_to_csv(&self, file_path: &str) -> Result<(), ExportError> {
-        let mut wtr = csv::Writer::from_path(file_path)?;
-        wtr.write_record(["folder", "url", "title", "note", "tags", "created"])?;
+    /// Export to a csv at the provided file path, or to stdout if no path is provided
+    pub async fn export_to_csv(&self, file_path: Option<&str>) -> Result<(), ExportError> {
+        let mut builder = WriterBuilder::new();
+        let wtr: Box<dyn io::Write> = match file_path {
+            Some(path) => Box::new(File::create(path)?),
+            None => Box::new(io::stdout()),
+        };
+        let mut wtr = builder.has_headers(true).from_writer(wtr);
+
+        wtr.write_record(["id", "folder", "url", "title", "note", "tags", "created"])?;
 
         let items = self.get_all_items(None).await?;
         for item in items {
@@ -268,6 +278,7 @@ impl DB {
                 .collect::<Vec<_>>()
                 .join(", ");
             wtr.write_record([
+                &item.id.unwrap().to_string(),
                 "Research",
                 &item.uri,
                 &item.title,
