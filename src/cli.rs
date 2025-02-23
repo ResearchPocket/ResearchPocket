@@ -90,6 +90,10 @@ pub enum Subcommands {
         /// Export current database to CSV format for import into `raindrop.io`
         #[arg(long, action = clap::ArgAction::SetTrue)]
         raindrop: bool,
+
+        /// Specify the output file (use "-" for stdout)
+        #[arg(index = 1, required = true)]
+        output: String,
     },
 
     /// Handle operations related to the research:// URL scheme
