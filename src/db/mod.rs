@@ -32,6 +32,7 @@ pub struct ResearchItem {
     pub time_added: i64,
     pub favorite: bool,
     pub lang: Option<String>,
+    pub notes: Option<String>,
 }
 
 impl fmt::Display for ResearchItem {
@@ -65,12 +66,13 @@ impl ResearchItem {
     pub fn to_display_with_timezone(&self, timezone: Option<Tz>) -> String {
         let time_added = self.format_time_added(timezone);
         format!(
-            "Title: {}\nURL: {}\nAdded: {}\nFavorite: {}\nLanguage: {}\nExcerpt:\n{}",
+            "Title: {}\nURL: {}\nAdded: {}\nFavorite: {}\nLanguage: {}\nNotes: {}\nExcerpt:\n{}",
             self.title,
             self.uri,
             time_added,
             if self.favorite { "Yes" } else { "No" },
             self.lang.as_ref().unwrap_or(&"Unknown".to_string()),
+            self.notes.as_ref().unwrap_or(&"None".to_string()),
             self.excerpt
         )
     }
@@ -99,6 +101,23 @@ pub struct DB {
 impl DB {
     pub async fn init(database_url: &str) -> Result<Self, sqlx::Error> {
         let pool = SqlitePoolOptions::new().connect(database_url).await?;
+
+        let check = sqlx::query("SELECT notes FROM items LIMIT 1")
+            .fetch_optional(&pool)
+            .await;
+
+        if let Err(sqlx::Error::Database(ref dberr)) = check {
+            if dberr.message().contains("no such column") {
+                println!("Upgrading database schema to add notes support...");
+                sqlx::query("ALTER TABLE items ADD COLUMN notes TEXT DEFAULT NULL")
+                    .execute(&pool)
+                    .await?;
+                println!("Database schema upgraded successfully!");
+                println!("Please restart the application to continue.");
+                std::process::exit(0);
+            }
+        }
+
         Ok(Self { pool })
     }
 
@@ -129,17 +148,19 @@ impl DB {
         provider_id: i64,
     ) -> Result<(), sqlx::Error> {
         let _ = sqlx::query(
-                        "INSERT OR IGNORE INTO items (id, uri, title, excerpt, time_added, favorite, lang, provider_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                    )
-                    .bind(insertable_item.id)
-                    .bind(insertable_item.uri)
-                    .bind(insertable_item.title)
-                    .bind(insertable_item.excerpt)
-                    .bind(insertable_item.time_added)
-                    .bind(insertable_item.favorite)
-                    .bind(insertable_item.lang)
-                    .bind(provider_id)
-                    .execute(&self.pool).await?;
+            "INSERT OR IGNORE INTO items (id, uri, title, excerpt, time_added, favorite, lang, notes, provider_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(insertable_item.id)
+        .bind(insertable_item.uri)
+        .bind(insertable_item.title)
+        .bind(insertable_item.excerpt)
+        .bind(insertable_item.time_added)
+        .bind(insertable_item.favorite)
+        .bind(insertable_item.lang)
+        .bind(insertable_item.notes)
+        .bind(provider_id)
+        .execute(&self.pool)
+        .await?;
 
         for tag in tags {
             let _ = sqlx::query("INSERT OR IGNORE INTO tags (tag_name) VALUES (?)")
@@ -267,7 +288,7 @@ impl DB {
         };
         let mut wtr = builder.has_headers(true).from_writer(wtr);
 
-        wtr.write_record(["id", "folder", "url", "title", "note", "tags", "created"])?;
+        wtr.write_record(["id", "folder", "url", "title", "excerpt", "note", "tags", "created"])?;
 
         let items = self.get_all_items(None).await?;
         for item in items {
@@ -283,6 +304,7 @@ impl DB {
                 &item.uri,
                 &item.title,
                 &item.excerpt,
+                &item.notes.unwrap_or_default(),
                 &tags,
                 &item.time_added.to_string(),
             ])?;
@@ -307,6 +329,15 @@ impl DB {
             .fetch_optional(&self.pool)
             .await?;
         Ok(row.map(|r| r.get(0)))
+    }
+
+    pub async fn update_notes(&self, uri: &str, notes: &str) -> Result<(), sqlx::Error> {
+        sqlx::query("UPDATE items SET notes = ? WHERE uri = ?")
+            .bind(notes)
+            .bind(uri)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
     }
 }
 

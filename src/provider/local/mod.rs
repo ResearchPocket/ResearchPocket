@@ -29,6 +29,7 @@ impl Insertable for LocalItem {
             time_added: self.time_added,
             favorite: false,
             lang: Some("en".into()),
+            notes: None,
         }
     }
 
