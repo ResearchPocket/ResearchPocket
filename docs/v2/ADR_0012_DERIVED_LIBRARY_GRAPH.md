@@ -42,7 +42,7 @@ reads verbatim:
 > Mentions are one-way references. No backlink index is persisted or
 > synchronized, mentions are never inserted automatically, and no mention
 > structure is part of the wire format, the projection, or any publication
-> artifact. A read-only view may derive relationships from bodies already in
+> artifact. A view may derive relationships from bodies already in
 > memory, provided it stores nothing and the derivation is discarded with the
 > view. New `research:` reference kinds require an ADR; the namespace is
 > append-only.
@@ -80,9 +80,12 @@ them never changes membership — only how it is drawn.
   no checkpoint content.
 - Nothing is published. Edges are not a publication field, and the publisher's
   negative scans are unaffected because there is no artifact to scan.
-- No mutation is offered from it. Dragging a node moves a pixel, not a record.
-  There is no explicit item-to-item link type; adding one would be a new
-  mutation kind and a new sync payload, and would need its own ADR.
+- No graph-specific mutation is offered from it. Dragging a node moves a pixel,
+  not a record, and there is no explicit item-to-item link type; adding one
+  would be a new mutation kind and a new sync payload, and would need its own
+  ADR. The inspector may invoke the same item actions as the list, such as
+  favorite, edit, delete, and restore. Those actions mutate the item through
+  the existing application service and do not persist graph structure.
 - It is read-only over zen bodies. The graph reads what the reader already
   reads and resolves mentions the same way.
 

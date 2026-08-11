@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DRIFT_NODE_LIMIT, GraphLayout, seedPosition } from "./graphLayout.ts";
+import { GraphLayout, seedPosition } from "./graphLayout.ts";
 
 /** A library-shaped graph: items around tag hubs, a few co-mentions. */
 function fixture(itemCount, tagCount = Math.ceil(itemCount / 12)) {
@@ -73,15 +73,14 @@ test("a thousand-save library comes to rest", () => {
   assert.ok(width < 40_000 && height < 40_000, `the cloud exploded: ${width}x${height}`);
 });
 
-test("the layout is at rest before the first frame is drawn", () => {
+test("the layout is at rest before the first frame even when its budget expires", () => {
   const { nodes, edges } = fixture(1000);
   const layout = new GraphLayout();
   layout.sync(nodes, edges);
 
-  // What the renderer does on open: settle first, then paint. Nobody should
-  // have to watch a thousand-node layout resolve itself. The time budget is
-  // lifted here so the assertion is tick-bound and cannot flake under load.
-  const ticks = layout.settle({}, 600, Number.POSITIVE_INFINITY);
+  // A busy device can exhaust the synchronous budget before cooling naturally.
+  // The renderer still has to paint a stable graph rather than finish live.
+  const ticks = layout.settle({}, 600, 0);
   assert.ok(layout.settled, `settle() returned unsettled after ${ticks} ticks`);
 
   let furthest = 0;
@@ -138,30 +137,18 @@ test("a settled layout stays still when it is stepped again", () => {
   assert.ok(furthest < 1, `settled layout drifted ${furthest.toFixed(2)}px in 60 ticks`);
 });
 
-test("a small library keeps breathing, and a large one does not", () => {
+test("small and large libraries both come to rest", () => {
   const small = new GraphLayout();
   const smallFixture = fixture(40, 5);
   small.sync(smallFixture.nodes, smallFixture.edges);
   run(small, 1200);
-  // Drift is the design's "never fully cools": below the limit it never
-  // reports settled, so the render loop keeps running.
-  assert.equal(small.settled, false);
-  assert.ok(small.order.length < DRIFT_NODE_LIMIT);
+  assert.equal(small.settled, true);
 
   const large = new GraphLayout();
   const largeFixture = fixture(1000);
   large.sync(largeFixture.nodes, largeFixture.edges);
   run(large, 1200);
   assert.equal(large.settled, true);
-});
-
-test("reduced motion settles a graph that would otherwise drift", () => {
-  const layout = new GraphLayout();
-  const { nodes, edges } = fixture(40, 5);
-  layout.setReducedMotion(true);
-  layout.sync(nodes, edges);
-  run(layout, 1200);
-  assert.equal(layout.settled, true);
 });
 
 test("a filter change keeps surviving positions and re-forms around them", () => {

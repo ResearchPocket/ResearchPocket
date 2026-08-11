@@ -20,7 +20,13 @@ export interface LibraryGraphProps {
   mentions: GraphMentionSource[];
   /** Paused rather than unmounted, so a mode switch keeps the settled layout. */
   hidden: boolean;
+  busy: boolean;
+  selectedTags: string[];
   onOpenItem(itemId: string): void;
+  onEditItem(itemId: string, opener: HTMLButtonElement): void;
+  onFavoriteItem(itemId: string): void;
+  onDeleteItem(itemId: string): void;
+  onRestoreItem(itemId: string): void;
   onFilterTag(tag: string): void;
 }
 
@@ -49,7 +55,13 @@ export function LibraryGraph({
   items,
   mentions,
   hidden,
+  busy,
+  selectedTags,
   onOpenItem,
+  onEditItem,
+  onFavoriteItem,
+  onDeleteItem,
+  onRestoreItem,
   onFilterTag,
 }: LibraryGraphProps) {
   const [showTags, setShowTags] = useState(true);
@@ -58,10 +70,8 @@ export function LibraryGraph({
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pinnedCount, setPinnedCount] = useState(0);
+  const [legendOpen, setLegendOpen] = useState(false);
   const [narrow, setNarrow] = useState(() => matchesNarrow());
-  const [reducedMotion, setReducedMotion] = useState(() =>
-    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false,
-  );
   const [unavailable, setUnavailable] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -88,6 +98,7 @@ export function LibraryGraph({
   const selected = selectedId
     ? (projection.nodes.find((node) => node.id === selectedId) ?? null)
     : null;
+  const selectedItem = selected ? sourceItem(selected, items) : undefined;
   // Degree order puts the hubs first, which is the order someone stepping
   // through the graph by keyboard actually wants to meet it in.
   const traversal = useMemo(
@@ -122,14 +133,10 @@ export function LibraryGraph({
 
   useEffect(() => {
     const media = window.matchMedia?.(MOBILE_QUERY);
-    const motion = window.matchMedia?.("(prefers-reduced-motion: reduce)");
     const onNarrow = () => setNarrow(matchesNarrow());
-    const onMotion = () => setReducedMotion(motion?.matches ?? false);
     media?.addEventListener("change", onNarrow);
-    motion?.addEventListener("change", onMotion);
     return () => {
       media?.removeEventListener("change", onNarrow);
-      motion?.removeEventListener("change", onMotion);
     };
   }, []);
 
@@ -137,9 +144,8 @@ export function LibraryGraph({
     simulation.current?.configure({
       projection: overCeiling ? EMPTY_PROJECTION : projection,
       narrow,
-      reducedMotion,
     });
-  }, [narrow, overCeiling, projection, reducedMotion]);
+  }, [narrow, overCeiling, projection]);
 
   useEffect(() => {
     simulation.current?.setSelection(selectedId);
@@ -185,7 +191,8 @@ export function LibraryGraph({
   function openSelection(node: GraphNode) {
     const itemId = nodeItemId(node.id);
     if (itemId) {
-      onOpenItem(itemId);
+      const item = items.find((candidate) => candidate.id === itemId);
+      if (item && !item.deleted) onOpenItem(itemId);
       return;
     }
     const tag = nodeTagName(node.id);
@@ -279,6 +286,16 @@ export function LibraryGraph({
         >
           orphans · {orphansOnly ? "only" : full.orphans.length}
         </button>
+        {!overCeiling && !unavailable ? (
+          <button
+            aria-controls="graph-legend"
+            aria-expanded={legendOpen}
+            onClick={() => setLegendOpen((value) => !value)}
+            type="button"
+          >
+            legend
+          </button>
+        ) : null}
         {pinnedCount > 0 ? (
           <button
             className="graph-release"
@@ -335,34 +352,36 @@ export function LibraryGraph({
                 </span>
               </p>
 
-              <dl className="graph-legend">
-                <div>
-                  <dt aria-hidden="true" className="graph-key graph-key-item">
-                    ●
-                  </dt>
-                  <dd>saved item</dd>
-                </div>
-                <div>
-                  <dt aria-hidden="true" className="graph-key graph-key-favorite">
-                    ●
-                  </dt>
-                  <dd>favorite</dd>
-                </div>
-                <div>
-                  <dt aria-hidden="true" className="graph-key graph-key-tag">
-                    ■
-                  </dt>
-                  <dd>tag hub</dd>
-                </div>
-                <div>
-                  <dt className="graph-key graph-key-tag-edge" />
-                  <dd>tag membership</dd>
-                </div>
-                <div>
-                  <dt className="graph-key graph-key-mention-edge" />
-                  <dd>co-mentioned in a Zen doc</dd>
-                </div>
-              </dl>
+              {legendOpen ? (
+                <dl className="graph-legend" id="graph-legend">
+                  <div>
+                    <dt aria-hidden="true" className="graph-key graph-key-item">
+                      ●
+                    </dt>
+                    <dd>saved item</dd>
+                  </div>
+                  <div>
+                    <dt aria-hidden="true" className="graph-key graph-key-favorite">
+                      ●
+                    </dt>
+                    <dd>favorite</dd>
+                  </div>
+                  <div>
+                    <dt aria-hidden="true" className="graph-key graph-key-tag">
+                      ■
+                    </dt>
+                    <dd>tag hub</dd>
+                  </div>
+                  <div>
+                    <dt className="graph-key graph-key-tag-edge" />
+                    <dd>tag membership</dd>
+                  </div>
+                  <div>
+                    <dt className="graph-key graph-key-mention-edge" />
+                    <dd>co-mentioned in a Zen doc</dd>
+                  </div>
+                </dl>
+              ) : null}
 
               <div className="graph-zoom">
                 <button
@@ -407,35 +426,105 @@ export function LibraryGraph({
               {selected ? nodeTitle(selected) : "Nothing selected"}
             </p>
             <p className="graph-inspector-meta">
-              {selected ? nodeMeta(selected, items) : "Choose a node to read it"}
+              {selected ? nodeMeta(selected, items) : "Choose a node to see its details"}
             </p>
-            {selected ? (
-              <div className="graph-inspector-tags">
-                {tagsFor(selected, items).map((tag) => (
-                  <span key={tag}>#{tag}</span>
-                ))}
-              </div>
-            ) : null}
           </div>
 
+          {selected ? (
+            <div className="graph-inspector-tags">
+              {tagsFor(selected, items).map((tag) => (
+                <button
+                  aria-label={`#${tag}, ${selectedTags.includes(tag) ? "remove" : "add"} tag filter`}
+                  aria-pressed={selectedTags.includes(tag)}
+                  key={tag}
+                  onClick={() => onFilterTag(tag)}
+                  type="button"
+                >
+                  #{tag}
+                </button>
+              ))}
+            </div>
+          ) : null}
+
           <div className="graph-inspector-actions">
-            <button
-              className="primary-button"
-              disabled={!selected}
-              onClick={() => selected && openSelection(selected)}
-              type="button"
-            >
-              {selected?.kind === "tag" ? "Filter" : "Open"}
-            </button>
+            {selectedItem ? (
+              <a
+                className="primary-button"
+                href={selectedItem.url}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Open original
+              </a>
+            ) : (
+              <button
+                className="primary-button"
+                disabled={!selected}
+                onClick={() => selected && openSelection(selected)}
+                type="button"
+              >
+                Filter
+              </button>
+            )}
             <button
               className="secondary-button"
               disabled={!selected}
-              onClick={() => selected && simulation.current?.center(selected.id)}
+              onClick={() =>
+                selectedItem && !selectedItem.deleted
+                  ? onOpenItem(selectedItem.id)
+                  : selected && simulation.current?.center(selected.id)
+              }
               type="button"
             >
-              Center
+              {selectedItem && !selectedItem.deleted ? "Reader" : "Center"}
             </button>
           </div>
+
+          {selectedItem ? (
+            <div
+              aria-label={`Actions for ${nodeTitle(selected!)}`}
+              className="graph-quick-actions"
+              role="group"
+            >
+              {selectedItem.deleted ? (
+                <button
+                  disabled={busy}
+                  onClick={() => onRestoreItem(selectedItem.id)}
+                  type="button"
+                >
+                  <span aria-hidden="true">↶</span> Restore
+                </button>
+              ) : (
+                <>
+                  <button
+                    aria-pressed={selectedItem.favorite}
+                    disabled={busy}
+                    onClick={() => onFavoriteItem(selectedItem.id)}
+                    type="button"
+                  >
+                    <span aria-hidden="true">★</span>{" "}
+                    {selectedItem.favorite ? "Unfavorite" : "Favorite"}
+                  </button>
+                  <button
+                    aria-haspopup="dialog"
+                    disabled={busy}
+                    onClick={(event) => onEditItem(selectedItem.id, event.currentTarget)}
+                    type="button"
+                  >
+                    <span aria-hidden="true">✎</span> Edit details
+                  </button>
+                  <button
+                    className="graph-quick-action-danger"
+                    disabled={busy}
+                    onClick={() => onDeleteItem(selectedItem.id)}
+                    type="button"
+                  >
+                    <span aria-hidden="true">⌫</span> Archive
+                  </button>
+                </>
+              )}
+            </div>
+          ) : null}
 
           <div className="graph-neighbourhood">
             <div className="graph-inspector-heading">
@@ -476,12 +565,6 @@ export function LibraryGraph({
                 })}
             </ol>
           </div>
-
-          <p className="graph-inspector-footnote">
-            Edges are derived, never stored: tag membership from the item,
-            co-mentions from <span>research:item/…</span> links inside Zen
-            documents.
-          </p>
         </aside>
       </div>
     </div>
@@ -566,7 +649,6 @@ interface SimulationHandlers {
 interface SimulationConfig {
   projection: GraphProjection;
   narrow: boolean;
-  reducedMotion: boolean;
 }
 
 interface Simulation {
@@ -610,7 +692,14 @@ function createSimulation(
   let frame = 0;
   let drawFrame = 0;
   let fontsReady = false;
-  let drag: { body: LayoutBody; dx: number; dy: number; moved: boolean } | null = null;
+  let drag: {
+    body: LayoutBody;
+    dx: number;
+    dy: number;
+    startX: number;
+    startY: number;
+    moved: boolean;
+  } | null = null;
   let pan: { x: number; y: number } | null = null;
   const pointers = new Map<number, { x: number; y: number }>();
   let pinch: { distance: number; scale: number } | null = null;
@@ -706,8 +795,8 @@ function createSimulation(
 
     draw();
 
-    // A large graph settles and the loop stops; a small one drifts forever by
-    // design, so it never reports settled and keeps asking for frames.
+    // Once the cooled layout reports settled, there is no reason to keep
+    // spending frames or moving pixels.
     if (!moving) frozen = true;
     if (!frozen) frame = requestAnimationFrame(loop);
   }
@@ -879,14 +968,20 @@ function createSimulation(
     canvas.setPointerCapture(event.pointerId);
     const point = toWorld(event.clientX, event.clientY);
     const hit = pick(point.x, point.y);
-    if (hit) {
+      if (hit) {
       selection = hit.id;
       handlers.onSelect(hit.id);
       // Drag-to-pin is a mouse gesture. On a phone the same press is a tap to
       // read, and a finger that wanders must not silently pin the node.
       if (!narrow) {
-        drag = { body: hit, dx: hit.x - point.x, dy: hit.y - point.y, moved: false };
-        layout.reheat(0.25);
+        drag = {
+          body: hit,
+          dx: hit.x - point.x,
+          dy: hit.y - point.y,
+          startX: event.clientX,
+          startY: event.clientY,
+          moved: false,
+        };
       }
     } else {
       pan = { x: event.clientX - translateX, y: event.clientY - translateY };
@@ -906,6 +1001,13 @@ function createSimulation(
       return;
     }
     if (drag) {
+      if (
+        !drag.moved &&
+        Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 3
+      ) {
+        return;
+      }
+      if (!drag.moved) layout.reheat(0.18);
       const point = toWorld(event.clientX, event.clientY);
       drag.body.x = point.x + drag.dx;
       drag.body.y = point.y + drag.dy;
@@ -1035,10 +1137,19 @@ function createSimulation(
 
   return {
     configure(config) {
+      const topologyChanged =
+        narrow !== config.narrow || !sameTopology(projection, config.projection);
       projection = config.projection;
       narrow = config.narrow;
-      layout.setReducedMotion(config.reducedMotion);
       nodesById = new Map(projection.nodes.map((node) => [node.id, node]));
+
+      // Favorite, title, and URL edits only change paint or inspector copy.
+      // Re-running the force layout for them would make a direct action move
+      // the graph even though its topology did not change.
+      if (!topologyChanged) {
+        thaw();
+        return;
+      }
 
       // The layout reconciles the body set: a surviving node keeps its
       // position and velocity, a filtered node leaves the simulation rather
@@ -1125,6 +1236,32 @@ function radiusFor(node: GraphNode): number {
   // Tag hubs are count-weighted so a cluster's weight is legible before its
   // label is; items stay uniform, because a save is a save.
   return node.kind === "tag" ? 5 + Math.min(5, node.count * 0.6) : 4.5;
+}
+
+function sameTopology(left: GraphProjection, right: GraphProjection): boolean {
+  if (left.nodes.length !== right.nodes.length || left.edges.length !== right.edges.length) {
+    return false;
+  }
+  const rightNodes = new Map(right.nodes.map((node) => [node.id, node]));
+  for (const leftNode of left.nodes) {
+    const rightNode = rightNodes.get(leftNode.id);
+    if (!rightNode || radiusFor(leftNode) !== radiusFor(rightNode)) {
+      return false;
+    }
+  }
+  for (let index = 0; index < left.edges.length; index += 1) {
+    const leftEdge = left.edges[index]!;
+    const rightEdge = right.edges[index]!;
+    if (
+      leftEdge.source !== rightEdge.source ||
+      leftEdge.target !== rightEdge.target ||
+      leftEdge.kind !== rightEdge.kind ||
+      leftEdge.weight !== rightEdge.weight
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /* ---- palette ---- */

@@ -54,6 +54,7 @@ export interface GraphItemInput {
   title?: string | null;
   tags: string[];
   favorite: boolean;
+  deleted?: boolean;
   savedAt: string;
 }
 
