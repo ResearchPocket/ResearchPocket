@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { DRIFT_NODE_LIMIT, GraphLayout, seedPosition } from "./graphLayout.ts";
+import { GraphLayout, seedPosition } from "./graphLayout.ts";
 
 /** A library-shaped graph: items around tag hubs, a few co-mentions. */
 function fixture(itemCount, tagCount = Math.ceil(itemCount / 12)) {
@@ -73,6 +73,52 @@ test("a thousand-save library comes to rest", () => {
   assert.ok(width < 40_000 && height < 40_000, `the cloud exploded: ${width}x${height}`);
 });
 
+test("the layout is at rest before the first frame even when its budget expires", () => {
+  const { nodes, edges } = fixture(1000);
+  const layout = new GraphLayout();
+  layout.sync(nodes, edges);
+
+  // A busy device can exhaust the synchronous budget before cooling naturally.
+  // The renderer still has to paint a stable graph rather than finish live.
+  const ticks = layout.settle({}, 600, 0);
+  assert.ok(layout.settled, `settle() returned unsettled after ${ticks} ticks`);
+
+  let furthest = 0;
+  const before = layout.order.map((body) => ({ x: body.x, y: body.y }));
+  for (let tick = 0; tick < 30; tick += 1) layout.step();
+  layout.order.forEach((body, index) => {
+    furthest = Math.max(
+      furthest,
+      Math.hypot(body.x - before[index].x, body.y - before[index].y),
+    );
+  });
+  assert.ok(furthest < 1, `first painted frames moved ${furthest.toFixed(2)}px`);
+});
+
+test("handling one node nudges the layout instead of restarting it", () => {
+  const { nodes, edges } = fixture(1000);
+  const layout = new GraphLayout();
+  layout.sync(nodes, edges);
+  layout.settle({}, 600, Number.POSITIVE_INFINITY);
+
+  // Grabbing a save must not re-energise the whole field to opening amplitude.
+  layout.reheat(0.25);
+  assert.equal(layout.alpha, 0.25);
+
+  // Long enough for alpha to fall from the nudge back under the floor.
+  const before = layout.order.map((body) => ({ x: body.x, y: body.y }));
+  for (let tick = 0; tick < 260; tick += 1) layout.step();
+  let furthest = 0;
+  layout.order.forEach((body, index) => {
+    furthest = Math.max(
+      furthest,
+      Math.hypot(body.x - before[index].x, body.y - before[index].y),
+    );
+  });
+  assert.ok(furthest < 60, `a nudge moved the field ${furthest.toFixed(0)}px`);
+  assert.ok(layout.settled, "a nudge must come back to rest");
+});
+
 test("a settled layout stays still when it is stepped again", () => {
   const { nodes, edges } = fixture(600);
   const layout = new GraphLayout();
@@ -91,30 +137,18 @@ test("a settled layout stays still when it is stepped again", () => {
   assert.ok(furthest < 1, `settled layout drifted ${furthest.toFixed(2)}px in 60 ticks`);
 });
 
-test("a small library keeps breathing, and a large one does not", () => {
+test("small and large libraries both come to rest", () => {
   const small = new GraphLayout();
   const smallFixture = fixture(40, 5);
   small.sync(smallFixture.nodes, smallFixture.edges);
   run(small, 1200);
-  // Drift is the design's "never fully cools": below the limit it never
-  // reports settled, so the render loop keeps running.
-  assert.equal(small.settled, false);
-  assert.ok(small.order.length < DRIFT_NODE_LIMIT);
+  assert.equal(small.settled, true);
 
   const large = new GraphLayout();
   const largeFixture = fixture(1000);
   large.sync(largeFixture.nodes, largeFixture.edges);
   run(large, 1200);
   assert.equal(large.settled, true);
-});
-
-test("reduced motion settles a graph that would otherwise drift", () => {
-  const layout = new GraphLayout();
-  const { nodes, edges } = fixture(40, 5);
-  layout.setReducedMotion(true);
-  layout.sync(nodes, edges);
-  run(layout, 1200);
-  assert.equal(layout.settled, true);
 });
 
 test("a filter change keeps surviving positions and re-forms around them", () => {

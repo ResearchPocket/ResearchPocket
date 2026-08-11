@@ -1967,7 +1967,13 @@ footer {
   .tag-suggestions button,
   .item-inline-tag,
   .selected-tags > span,
-  .selected-tags button {
+  .selected-tags button,
+  .graph-toolbar button,
+  .graph-zoom button,
+  .graph-inspector-actions button,
+  .graph-inspector-actions a,
+  .graph-inspector-tags button,
+  .graph-quick-actions button {
     min-height: var(--control-height);
   }
 
@@ -2357,7 +2363,11 @@ kbd {
 }
 
 .sort-control {
-  margin-left: auto;
+  min-width: 5.5rem;
+}
+
+.sort-control-hidden {
+  visibility: hidden;
 }
 
 /* No border: the row already has a heading and a count, and a third boxed
@@ -5499,8 +5509,15 @@ kbd {
   border-radius: var(--radius);
   display: flex;
   flex: 0 0 auto;
-  margin-left: auto;
   overflow: hidden;
+}
+
+.library-view-controls {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: var(--space-3);
+  margin-left: auto;
 }
 
 .library-mode button {
@@ -5555,6 +5572,11 @@ kbd {
 }
 
 .graph-toolbar button[aria-pressed="true"] {
+  border-color: var(--color-border-strong);
+  color: var(--color-accent-strong);
+}
+
+.graph-toolbar button[aria-expanded="true"] {
   border-color: var(--color-border-strong);
   color: var(--color-accent-strong);
 }
@@ -5811,11 +5833,13 @@ kbd {
   gap: var(--space-1);
 }
 
-.graph-inspector-tags span {
+.graph-inspector-tags button {
+  background: transparent;
   border: var(--rule) solid var(--color-border);
   border-radius: var(--radius);
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
+  min-height: 1.5rem;
   padding: 0 var(--space-2);
 }
 
@@ -5826,6 +5850,36 @@ kbd {
 
 .graph-inspector-actions button {
   flex: 1 1 auto;
+}
+
+.graph-inspector-actions a {
+  flex: 1 1 auto;
+  text-decoration: none;
+}
+
+.graph-quick-actions {
+  border-top: var(--rule) solid var(--color-border-subtle);
+  display: grid;
+  padding-top: var(--space-2);
+}
+
+.graph-quick-actions button {
+  background: transparent;
+  border: var(--rule) solid transparent;
+  border-radius: var(--radius);
+  color: var(--color-text-soft);
+  font-size: var(--font-size-xs);
+  min-height: 2rem;
+  padding: 0 var(--space-2);
+  text-align: left;
+}
+
+.graph-quick-actions button[aria-pressed="true"] {
+  color: var(--color-accent-strong);
+}
+
+.graph-quick-actions .graph-quick-action-danger {
+  color: var(--color-danger);
 }
 
 .graph-neighbourhood {
@@ -5876,24 +5930,13 @@ kbd {
   color: var(--color-text-muted);
 }
 
-.graph-inspector-footnote {
-  border-top: var(--rule) solid var(--color-border-subtle);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-body);
-  margin: auto 0 0;
-  padding-top: var(--space-3);
-}
-
-.graph-inspector-footnote span {
-  color: var(--color-text-soft);
-}
-
 @media (hover: hover) and (pointer: fine) {
   .graph-toolbar button:hover,
   .graph-zoom button:hover,
   .graph-nodes button:hover,
-  .graph-neighbourhood button:hover {
+  .graph-neighbourhood button:hover,
+  .graph-inspector-tags button:hover,
+  .graph-quick-actions button:hover {
     border-color: var(--color-border-strong);
     color: var(--color-text);
   }
@@ -5902,10 +5945,6 @@ kbd {
 @media (max-width: 68rem) {
   .graph-body {
     grid-template-columns: minmax(0, 1fr) 16rem;
-  }
-
-  .graph-legend {
-    display: none;
   }
 }
 
@@ -5937,8 +5976,7 @@ kbd {
   }
 
   .graph-zoom,
-  .graph-neighbourhood,
-  .graph-inspector-footnote {
+  .graph-neighbourhood {
     display: none;
   }
 
@@ -5955,7 +5993,10 @@ kbd {
     display: none;
   }
 
-  .graph-inspector-actions button {
+  .graph-inspector-actions button,
+  .graph-inspector-actions a,
+  .graph-inspector-tags button,
+  .graph-quick-actions button {
     min-height: var(--control-height);
   }
 

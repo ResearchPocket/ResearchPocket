@@ -1250,36 +1250,41 @@ export function App() {
               </h2>
               <p className="library-count">{pluralize(visibleItems.length, "item")}</p>
             </div>
-            <div aria-label="Library projection" className="library-mode" role="group">
-              <button
-                aria-pressed={libraryMode === "list"}
-                onClick={() => changeLibraryMode("list")}
-                type="button"
+            <div className="library-view-controls">
+              {/* Order is a list idea, but its reserved space keeps the view
+                  switch anchored when the graph is selected. */}
+              <label
+                aria-hidden={libraryMode !== "list"}
+                className={`sort-control${libraryMode === "list" ? "" : " sort-control-hidden"}`}
               >
-                List
-              </button>
-              <button
-                aria-pressed={libraryMode === "graph"}
-                onClick={() => changeLibraryMode("graph")}
-                type="button"
-              >
-                Graph
-              </button>
-            </div>
-            {/* Density is a preference, not a toolbar decision, so it lives in
-                Settings and this row keeps only the one control that changes
-                what the list is showing. Order is a list idea; the graph has
-                no first row to put anything at the top of. */}
-            {libraryMode === "list" ? (
-              <label className="sort-control">
                 <span className="sr-only">Sort order</span>
-                <select onChange={(event) => setSortMode(event.target.value as SortMode)} value={sortMode}>
+                <select
+                  disabled={libraryMode !== "list"}
+                  onChange={(event) => setSortMode(event.target.value as SortMode)}
+                  value={sortMode}
+                >
                   <option value="recent">newest ↓</option>
                   <option value="oldest">oldest ↑</option>
                   <option value="title">title A–Z</option>
                 </select>
               </label>
-            ) : null}
+              <div aria-label="Library projection" className="library-mode" role="group">
+                <button
+                  aria-pressed={libraryMode === "list"}
+                  onClick={() => changeLibraryMode("list")}
+                  type="button"
+                >
+                  List
+                </button>
+                <button
+                  aria-pressed={libraryMode === "graph"}
+                  onClick={() => changeLibraryMode("graph")}
+                  type="button"
+                >
+                  Graph
+                </button>
+              </div>
+            </div>
           </div>
 
           <Omnibar
@@ -1438,14 +1443,32 @@ export function App() {
             <EmptyLibrary filter={filter} hasQuery={query.trim().length > 0} />
           ) : libraryMode === "graph" ? (
             <LibraryGraph
+              busy={busyAction !== null}
               hidden={view !== "library" || readerItem !== null}
               items={visibleItems}
               mentions={zenMentions}
+              onDeleteItem={(itemId) => {
+                const item = items.find((candidate) => candidate.id === itemId);
+                if (item) void deleteItem(item);
+              }}
+              onEditItem={(itemId, opener) => {
+                const item = items.find((candidate) => candidate.id === itemId);
+                if (item) openEditor(item, opener);
+              }}
               onFilterTag={toggleTagFilter}
+              onFavoriteItem={(itemId) => {
+                const item = items.find((candidate) => candidate.id === itemId);
+                if (item) void toggleFavorite(item);
+              }}
               onOpenItem={(itemId) => {
                 const item = items.find((candidate) => candidate.id === itemId);
                 if (item) openReader(item);
               }}
+              onRestoreItem={(itemId) => {
+                const item = items.find((candidate) => candidate.id === itemId);
+                if (item) void restoreItem(item);
+              }}
+              selectedTags={selectedTags}
             />
           ) : (
             <ol className={`item-list item-list-${density}`}>

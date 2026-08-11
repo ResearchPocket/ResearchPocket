@@ -3,9 +3,9 @@
  * the property that actually matters — that it settles, at any size — can be
  * tested without a canvas.
  *
- * The layout cools. An uncooled simulation looks alive at fifty nodes and
- * looks broken at a thousand: every constant below is either scaled by density
- * or damped by `alpha`, and both were missing in the first cut.
+ * The layout cools to a hard stop. An uncooled simulation looks alive briefly
+ * and then looks broken: every constant below is scaled by density or damped by
+ * `alpha`, and a settled layout stops producing frames.
  */
 
 export interface LayoutBody {
@@ -41,15 +41,6 @@ export interface StepOptions {
 }
 
 /**
- * Above this the drift is switched off and the layout comes to a full stop.
- *
- * Perpetual motion is an aesthetic that stops working at scale: a thousand
- * points each on their own random walk is not life, it is noise, and it costs
- * a frame's work forever to draw. Small libraries keep the breathing.
- */
-export const DRIFT_NODE_LIMIT = 300;
-
-/**
  * Cooling schedule. Roughly 200 ticks to a standstill — about three seconds,
  * which is long enough for the layout to find its shape and short enough that
  * nobody watches it wander.
@@ -57,7 +48,6 @@ export const DRIFT_NODE_LIMIT = 300;
 const ALPHA_DECAY = 0.03;
 /** Alpha below this is motion nobody can see, so the loop may stop. */
 const ALPHA_MIN = 0.002;
-const DRIFT_ALPHA_FLOOR = 0.05;
 const REPULSION = 1500;
 const VELOCITY_DECAY = 0.86;
 const MAX_SPEED = 6;
@@ -80,10 +70,8 @@ export class GraphLayout {
   order: LayoutBody[] = [];
   private edges: LayoutEdge[] = [];
   private alphaValue = 1;
-  private floor = DRIFT_ALPHA_FLOOR;
   private scale = 1;
   private settledValue = false;
-  private reduced = false;
 
   get alpha(): number {
     return this.alphaValue;
@@ -92,12 +80,6 @@ export class GraphLayout {
   /** True once nothing is moving and nothing will move without a nudge. */
   get settled(): boolean {
     return this.settledValue;
-  }
-
-  /** Under reduced motion the floor is zero, so it stops rather than breathes. */
-  setReducedMotion(reduced: boolean): void {
-    this.reduced = reduced;
-    this.applyFloor();
   }
 
   /**
@@ -138,19 +120,49 @@ export class GraphLayout {
     }
 
     this.order = next;
-    this.applyFloor();
     this.reheat();
   }
 
-  /** Returns the layout to full energy — a new node set, or a released pin. */
-  reheat(): void {
-    this.alphaValue = 1;
+  /**
+   * Puts energy back in. A new node set earns the full amount; handling one
+   * node earns a fraction, or grabbing a save would set the whole field off.
+   */
+  reheat(amplitude = 1): void {
+    this.alphaValue = Math.max(this.alphaValue, amplitude);
     this.settledValue = false;
   }
 
-  private applyFloor(): void {
-    this.floor =
-      this.reduced || this.order.length > DRIFT_NODE_LIMIT ? 0 : DRIFT_ALPHA_FLOOR;
+  /**
+   * Runs the layout to rest before anything is drawn.
+   *
+   * A force layout resolving itself is not a thing anyone needs to watch: at a
+   * thousand nodes it is five seconds of everything moving at once. The work is
+   * the same either way, so it happens up front and the first painted frame is
+   * the settled one. The budget bounds the pause on very large graphs; if it is
+   * exhausted, the current deterministic layout is frozen instead of making
+   * the user watch it continue to jitter.
+   */
+  settle(options: StepOptions = {}, maxTicks = 600, budgetMs = 550): number {
+    const started = performance.now();
+    const clockInterval = this.order.length > 1_000 ? 8 : 32;
+    let ticks = 0;
+    while (ticks < maxTicks) {
+      if (!this.step(options)) break;
+      ticks += 1;
+      // Checked in blocks, because the clock costs more than the tick does.
+      if (ticks % clockInterval === 0 && performance.now() - started > budgetMs) break;
+    }
+    if (!this.settledValue) this.stop();
+    return ticks;
+  }
+
+  private stop(): void {
+    this.alphaValue = 0;
+    this.settledValue = true;
+    for (const body of this.order) {
+      body.vx = 0;
+      body.vy = 0;
+    }
   }
 
   /**
@@ -159,9 +171,9 @@ export class GraphLayout {
    */
   step(options: StepOptions = {}): boolean {
     const bodies = this.order;
-    if (bodies.length === 0) return false;
+    if (bodies.length === 0 || this.settledValue) return false;
 
-    this.alphaValue += (this.floor - this.alphaValue) * ALPHA_DECAY;
+    this.alphaValue += (0 - this.alphaValue) * ALPHA_DECAY;
     const alpha = this.alphaValue;
     const narrow = options.narrow ?? false;
 
@@ -200,24 +212,22 @@ export class GraphLayout {
     // Centring has to weaken as the population grows or it crushes a large
     // library into one over-energised ball that can never come to rest.
     const gravity = 0.0022 / this.scale;
-    const drift = this.floor > 0;
     let fastest = 0;
 
     for (const body of bodies) {
       body.vx -= body.x * gravity;
       body.vy -= body.y * gravity * 1.18;
-      if (drift) {
-        // The design system bans CSS motion, so what life the graph has must
-        // live in the pixels. Damped by alpha, this is a breath, not a walk.
-        body.vx += (Math.random() - 0.5) * 0.09 * alpha;
-        body.vy += (Math.random() - 0.5) * 0.09 * alpha;
-      }
       body.vx *= VELOCITY_DECAY;
       body.vy *= VELOCITY_DECAY;
-      const speed = Math.hypot(body.vx, body.vy);
+      let speed = Math.hypot(body.vx, body.vy);
       if (speed > MAX_SPEED) {
         body.vx = (body.vx / speed) * MAX_SPEED;
         body.vy = (body.vy / speed) * MAX_SPEED;
+        // Measured after the clamp, because this is what "is anything still
+        // moving" has to mean. Two nearly-coincident nodes carry a repulsion
+        // force in the thousands, and reading the speed before the cap let a
+        // single such pair hold the whole layout "in motion" indefinitely.
+        speed = MAX_SPEED;
       }
       if (!body.pinned || options.dragging === body.id) {
         // Alpha scales the displacement, not the forces: the layout still
@@ -229,21 +239,18 @@ export class GraphLayout {
       if (moved > fastest) fastest = moved;
     }
 
-    // Soft walls at the frame edge: drift stays alive, but nothing wanders out
-    // of the panel and becomes unreachable.
+    // Soft walls keep a reheated layout from moving out of the reachable panel.
     if (options.limitX && options.limitY) {
       for (const body of bodies) {
-        if (Math.abs(body.x) > options.limitX) {
-          body.vx -= (body.x - Math.sign(body.x) * options.limitX) * 0.05;
-        }
-        if (Math.abs(body.y) > options.limitY) {
-          body.vy -= (body.y - Math.sign(body.y) * options.limitY) * 0.05;
-        }
+        const overX = Math.abs(body.x) - options.limitX;
+        const overY = Math.abs(body.y) - options.limitY;
+        if (overX > 0) body.vx -= Math.sign(body.x) * Math.min(overX, 400) * 0.012;
+        if (overY > 0) body.vy -= Math.sign(body.y) * Math.min(overY, 400) * 0.012;
       }
     }
 
-    this.settledValue =
-      this.alphaValue <= this.floor + ALPHA_MIN && fastest < SETTLED_SPEED;
+    this.settledValue = this.alphaValue <= ALPHA_MIN && fastest < SETTLED_SPEED;
+    if (this.settledValue) this.stop();
     return !this.settledValue;
   }
 
