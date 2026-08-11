@@ -96,6 +96,7 @@ interface UndoNotice {
 
 const DENSITY_STORAGE_KEY = "researchpocket.ui.density";
 const LIBRARY_MODE_STORAGE_KEY = "researchpocket.ui.library-mode";
+const RAIL_COLLAPSED_STORAGE_KEY = "researchpocket.ui.rail-collapsed";
 const THEME_STORAGE_KEY = "researchpocket.ui.theme";
 const IMAGE_BACKGROUND_STORAGE_KEY = "researchpocket.ui.image-background";
 const DEFAULT_IMAGE_BACKGROUND = "#ffffff";
@@ -219,6 +220,9 @@ export function App() {
   const [libraryMode, setLibraryMode] = useState<LibraryMode>(() =>
     readInitialLibraryMode(),
   );
+  const [railCollapsed, setRailCollapsed] = useState(() =>
+    readRailCollapsedPreference(),
+  );
   const [zenMentions, setZenMentions] = useState<GraphMentionSource[]>([]);
   const [capturing, setCapturing] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
@@ -287,6 +291,17 @@ export function App() {
       // The preference remains active for this tab when storage is unavailable.
     }
   }, [density]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        RAIL_COLLAPSED_STORAGE_KEY,
+        String(railCollapsed),
+      );
+    } catch {
+      // The preference remains active for this tab when storage is unavailable.
+    }
+  }, [railCollapsed]);
 
   // The remembered mode is written into the URL once, on open. After that the
   // parameter is the only thing that decides, so going back out of the graph
@@ -994,6 +1009,21 @@ export function App() {
                   say which screen it is on, so the two swap places there. */}
               <p className="brand-view">{formatViewLabel(view)}</p>
             </button>
+            {railApplies ? (
+              <button
+                aria-controls="workspace-sidebar"
+                aria-expanded={!railCollapsed}
+                className="workspace-rail-toggle"
+                onClick={() => setRailCollapsed((collapsed) => !collapsed)}
+                title={railCollapsed ? "Show sidebar" : "Hide sidebar"}
+                type="button"
+              >
+                <span aria-hidden="true">{railCollapsed ? "sidebar →" : "sidebar ←"}</span>
+                <span className="sr-only">
+                  {railCollapsed ? "Show sidebar" : "Hide sidebar"}
+                </span>
+              </button>
+            ) : null}
           </div>
 
           <div className="masthead-actions">
@@ -1052,8 +1082,13 @@ export function App() {
         </header>
       </div>
 
-      <div className="workspace-layout">
-        <aside className={`tag-rail${railApplies ? "" : " tag-rail-empty"}`}>
+      <div
+        className={`workspace-layout${railCollapsed || !railApplies ? " workspace-layout-rail-collapsed" : ""}`}
+      >
+        <aside
+          className={`tag-rail${railApplies ? "" : " tag-rail-empty"}`}
+          id="workspace-sidebar"
+        >
           <nav aria-label="Library views" className="rail-nav">
             <button
               aria-current={view === "library" && filter === "active" && !favoriteOnly ? "page" : undefined}
@@ -1508,7 +1543,9 @@ export function App() {
             <span><b>/</b> search</span>
             <span><b>⌘V</b> save a URL</span>
             <span><b>⏎</b> reader</span>
-            {libraryMode === "graph" ? <span><b>0</b> reframe</span> : null}
+            {libraryMode === "graph" ? <span><b>0</b> fit all</span> : null}
+            {libraryMode === "graph" ? <span><b>+/-</b> zoom</span> : null}
+            {libraryMode === "graph" ? <span><b>C</b> focus</span> : null}
           </footer>
           </section>
         </main>
@@ -3871,6 +3908,14 @@ function readDensityPreference(): Density {
       : "comfortable";
   } catch {
     return "comfortable";
+  }
+}
+
+function readRailCollapsedPreference(): boolean {
+  try {
+    return window.localStorage.getItem(RAIL_COLLAPSED_STORAGE_KEY) === "true";
+  } catch {
+    return false;
   }
 }
 

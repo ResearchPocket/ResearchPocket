@@ -1969,7 +1969,6 @@ footer {
   .selected-tags > span,
   .selected-tags button,
   .graph-toolbar button,
-  .graph-zoom button,
   .graph-inspector-actions button,
   .graph-inspector-actions a,
   .graph-inspector-tags button,
@@ -2219,6 +2218,25 @@ kbd {
   grid-template-columns: 14rem minmax(0, 1fr);
   min-height: 0;
   position: relative;
+}
+
+.workspace-layout-rail-collapsed {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.workspace-layout-rail-collapsed .tag-rail,
+.tag-rail.tag-rail-empty {
+  display: none;
+}
+
+.workspace-rail-toggle {
+  background: transparent;
+  border: var(--rule) solid var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  min-height: 2rem;
+  padding: 0 var(--space-2);
 }
 
 .mobile-actions {
@@ -3231,6 +3249,14 @@ kbd {
     flex: 1 1 auto;
     flex-direction: column;
     overflow: visible;
+  }
+
+  .workspace-layout-rail-collapsed .tag-rail:not(.tag-rail-empty) {
+    display: flex;
+  }
+
+  .workspace-rail-toggle {
+    display: none;
   }
 
   .tag-rail {
@@ -5553,11 +5579,39 @@ kbd {
 }
 
 .graph-toolbar {
+  align-items: center;
   display: flex;
   flex: 0 0 auto;
   gap: var(--space-2);
   overflow-x: auto;
   padding-bottom: var(--space-3);
+}
+
+.graph-camera {
+  align-items: center;
+  border: var(--rule) solid var(--color-border-strong);
+  border-radius: var(--radius);
+  display: flex;
+  flex: 0 0 auto;
+  overflow: hidden;
+}
+
+.graph-toolbar .graph-camera button {
+  border: 0;
+}
+
+.graph-camera button + button,
+.graph-camera output + button,
+.graph-camera button + output {
+  border-left: var(--rule) solid var(--color-border-subtle);
+}
+
+.graph-camera output {
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  padding: 0 var(--space-2);
+  text-align: center;
+  width: 3.25rem;
 }
 
 .graph-toolbar button {
@@ -5591,6 +5645,10 @@ kbd {
   flex: 1 1 auto;
   grid-template-columns: minmax(0, 1fr) 20rem;
   min-height: 0;
+}
+
+.graph-body.graph-body-inspector-closed {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .graph-stage {
@@ -5692,43 +5750,6 @@ kbd {
   background: var(--accent);
 }
 
-.graph-zoom {
-  align-items: center;
-  background: var(--color-surface);
-  border: var(--rule) solid var(--color-border-subtle);
-  bottom: 0.75rem;
-  display: flex;
-  position: absolute;
-  right: 0.75rem;
-}
-
-.graph-zoom button {
-  background: transparent;
-  border: 0;
-  color: var(--color-text-soft);
-  font-size: var(--font-size-sm);
-  min-height: 1.875rem;
-  padding: 0 0.625rem;
-}
-
-.graph-zoom button:last-child {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-}
-
-.graph-zoom button + span,
-.graph-zoom span + button {
-  border-left: var(--rule) solid var(--color-border-subtle);
-}
-
-.graph-zoom span {
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  padding: 0 var(--space-2);
-  text-align: center;
-  width: 3.25rem;
-}
-
 .graph-notice {
   display: grid;
   gap: var(--space-3);
@@ -5784,6 +5805,10 @@ kbd {
   min-height: 0;
   overflow: auto;
   padding: var(--space-5);
+}
+
+.graph-inspector-closed {
+  display: none;
 }
 
 .graph-inspector-heading {
@@ -5932,7 +5957,6 @@ kbd {
 
 @media (hover: hover) and (pointer: fine) {
   .graph-toolbar button:hover,
-  .graph-zoom button:hover,
   .graph-nodes button:hover,
   .graph-neighbourhood button:hover,
   .graph-inspector-tags button:hover,
@@ -5975,7 +5999,6 @@ kbd {
     min-height: 18rem;
   }
 
-  .graph-zoom,
   .graph-neighbourhood {
     display: none;
   }

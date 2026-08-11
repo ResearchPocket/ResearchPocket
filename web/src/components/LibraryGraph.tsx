@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { GraphLayout, type LayoutBody } from "../data/graphLayout.ts";
 import {
   buildGraphProjection,
@@ -50,6 +56,7 @@ interface Palette {
 const MIN_SCALE = 0.08;
 const MAX_SCALE = 4;
 const MOBILE_QUERY = "(max-width: 48rem)";
+const INSPECTOR_OPEN_STORAGE_KEY = "researchpocket.ui.graph-inspector-open";
 
 export function LibraryGraph({
   items,
@@ -71,6 +78,9 @@ export function LibraryGraph({
   const [zoom, setZoom] = useState(1);
   const [pinnedCount, setPinnedCount] = useState(0);
   const [legendOpen, setLegendOpen] = useState(false);
+  const [inspectorOpen, setInspectorOpen] = useState(() =>
+    readInspectorPreference(),
+  );
   const [narrow, setNarrow] = useState(() => matchesNarrow());
   const [unavailable, setUnavailable] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -94,6 +104,7 @@ export function LibraryGraph({
 
   const ceiling = narrow ? GRAPH_MOBILE_NODE_CEILING : GRAPH_NODE_CEILING;
   const overCeiling = projection.nodes.length > ceiling;
+  const drawable = !overCeiling && !unavailable;
 
   const selected = selectedId
     ? (projection.nodes.find((node) => node.id === selectedId) ?? null)
@@ -132,6 +143,17 @@ export function LibraryGraph({
   }, []);
 
   useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        INSPECTOR_OPEN_STORAGE_KEY,
+        String(inspectorOpen),
+      );
+    } catch {
+      // The preference remains active for this tab when storage is unavailable.
+    }
+  }, [inspectorOpen]);
+
+  useEffect(() => {
     const media = window.matchMedia?.(MOBILE_QUERY);
     const onNarrow = () => setNarrow(matchesNarrow());
     media?.addEventListener("change", onNarrow);
@@ -161,23 +183,6 @@ export function LibraryGraph({
     return () => document.removeEventListener("visibilitychange", update);
   }, [hidden]);
 
-  // `0` reframes the field. It is a window shortcut rather than a canvas one
-  // because the canvas is aria-hidden and so never takes focus itself.
-  useEffect(() => {
-    if (hidden) return;
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key !== "0" || event.ctrlKey || event.metaKey || event.altKey) return;
-      const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select") || target?.isContentEditable) {
-        return;
-      }
-      event.preventDefault();
-      simulation.current?.reset();
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [hidden]);
-
   // A selection that the filter just removed would leave the inspector
   // describing something no longer on screen.
   useEffect(() => {
@@ -187,6 +192,24 @@ export function LibraryGraph({
   }, [projection.nodes, selectedId]);
 
   const cursors = useRef(new Map<string, number>());
+
+  function handleCameraKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (!drawable || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.target !== event.currentTarget) return;
+    if (event.key === "0") {
+      event.preventDefault();
+      simulation.current?.reset();
+    } else if (event.key === "+" || event.key === "=") {
+      event.preventDefault();
+      simulation.current?.zoomBy(1.25);
+    } else if (event.key === "-" || event.key === "_") {
+      event.preventDefault();
+      simulation.current?.zoomBy(0.8);
+    } else if (event.key.toLowerCase() === "c" && selectedId) {
+      event.preventDefault();
+      simulation.current?.focus(selectedId);
+    }
+  }
 
   function openSelection(node: GraphNode) {
     const itemId = nodeItemId(node.id);
@@ -265,6 +288,38 @@ export function LibraryGraph({
   return (
     <div className="library-graph">
       <div className="graph-toolbar">
+        {drawable ? (
+          <div aria-label="Graph camera" className="graph-camera" role="group">
+            <button
+              aria-label="Zoom out"
+              onClick={() => simulation.current?.zoomBy(0.8)}
+              type="button"
+            >
+              −
+            </button>
+            <output aria-label="Zoom level">{Math.round(zoom * 100)}%</output>
+            <button
+              aria-label="Zoom in"
+              onClick={() => simulation.current?.zoomBy(1.25)}
+              type="button"
+            >
+              +
+            </button>
+            <button
+              disabled={!selected}
+              onClick={() => selected && simulation.current?.focus(selected.id)}
+              type="button"
+            >
+              Focus
+            </button>
+            <button
+              onClick={() => simulation.current?.reset()}
+              type="button"
+            >
+              Fit all
+            </button>
+          </div>
+        ) : null}
         <button
           aria-pressed={showTags}
           onClick={() => setShowTags((value) => !value)}
@@ -286,7 +341,7 @@ export function LibraryGraph({
         >
           orphans · {orphansOnly ? "only" : full.orphans.length}
         </button>
-        {!overCeiling && !unavailable ? (
+        {drawable ? (
           <button
             aria-controls="graph-legend"
             aria-expanded={legendOpen}
@@ -294,6 +349,16 @@ export function LibraryGraph({
             type="button"
           >
             legend
+          </button>
+        ) : null}
+        {!narrow ? (
+          <button
+            aria-controls="graph-inspector"
+            aria-expanded={inspectorOpen}
+            onClick={() => setInspectorOpen((open) => !open)}
+            type="button"
+          >
+            details
           </button>
         ) : null}
         {pinnedCount > 0 ? (
@@ -307,8 +372,20 @@ export function LibraryGraph({
         ) : null}
       </div>
 
-      <div className="graph-body">
-        <div className="graph-stage">
+      <div
+        className={`graph-body${!narrow && !inspectorOpen ? " graph-body-inspector-closed" : ""}`}
+      >
+        <div
+          aria-describedby={drawable ? "graph-camera-shortcuts" : undefined}
+          aria-label={drawable ? "Graph canvas" : undefined}
+          className="graph-stage"
+          onKeyDown={handleCameraKeyDown}
+          tabIndex={!hidden && drawable ? 0 : -1}
+        >
+          <p className="sr-only" id="graph-camera-shortcuts">
+            When this graph has focus, plus and minus zoom, 0 fits all nodes,
+            and C focuses the selected node.
+          </p>
           <canvas
             aria-hidden="true"
             className="graph-canvas"
@@ -382,27 +459,6 @@ export function LibraryGraph({
                   </div>
                 </dl>
               ) : null}
-
-              <div className="graph-zoom">
-                <button
-                  aria-label="Zoom out"
-                  onClick={() => simulation.current?.zoomBy(0.8)}
-                  type="button"
-                >
-                  −
-                </button>
-                <span>{Math.round(zoom * 100)}%</span>
-                <button
-                  aria-label="Zoom in"
-                  onClick={() => simulation.current?.zoomBy(1.25)}
-                  type="button"
-                >
-                  +
-                </button>
-                <button onClick={() => simulation.current?.reset()} type="button">
-                  reset
-                </button>
-              </div>
             </>
           ) : null}
 
@@ -413,7 +469,10 @@ export function LibraryGraph({
           {nodeList}
         </div>
 
-        <aside className="graph-inspector">
+        <aside
+          className={`graph-inspector${!narrow && !inspectorOpen ? " graph-inspector-closed" : ""}`}
+          id="graph-inspector"
+        >
           <div className="graph-inspector-heading">
             <p>Selected</p>
             <span>{selected ? kindLabel(selected) : "—"}</span>
@@ -582,6 +641,14 @@ function matchesNarrow(): boolean {
   return window.matchMedia?.(MOBILE_QUERY).matches ?? false;
 }
 
+function readInspectorPreference(): boolean {
+  try {
+    return window.localStorage.getItem(INSPECTOR_OPEN_STORAGE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
 function nodeButtonId(id: string): string {
   return `graph-node-${id.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 }
@@ -656,6 +723,7 @@ interface Simulation {
   setSelection(id: string | null): void;
   setRunning(running: boolean): void;
   center(id: string): void;
+  focus(id: string): void;
   zoomBy(factor: number): void;
   reset(): void;
   releaseAll(): void;
@@ -750,7 +818,7 @@ function createSimulation(
     dpr = window.devicePixelRatio || 1;
     canvas.width = Math.round(rect.width * dpr);
     canvas.height = Math.round(rect.height * dpr);
-    fitPending = true;
+    if (!warmed) fitPending = true;
     thaw();
   };
   const observer = new ResizeObserver(resize);
@@ -958,6 +1026,7 @@ function createSimulation(
   /* ---- pointer input ---- */
 
   const onPointerDown = (event: PointerEvent) => {
+    canvas.parentElement?.focus({ preventScroll: true });
     pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (pointers.size === 2) {
       pinch = { distance: pointerDistance(), scale };
@@ -968,7 +1037,7 @@ function createSimulation(
     canvas.setPointerCapture(event.pointerId);
     const point = toWorld(event.clientX, event.clientY);
     const hit = pick(point.x, point.y);
-      if (hit) {
+    if (hit) {
       selection = hit.id;
       handlers.onSelect(hit.id);
       // Drag-to-pin is a mouse gesture. On a phone the same press is a tap to
@@ -1189,6 +1258,15 @@ function createSimulation(
       if (!body) return;
       translateX = -body.x * scale;
       translateY = -body.y * scale;
+      thaw();
+    },
+    focus(id) {
+      const body = bodies.get(id);
+      if (!body) return;
+      scale = Math.max(scale, 1);
+      translateX = -body.x * scale;
+      translateY = -body.y * scale;
+      handlers.onScale(scale);
       thaw();
     },
     zoomBy(factor) {
