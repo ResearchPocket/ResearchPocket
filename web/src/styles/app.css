@@ -2220,23 +2220,45 @@ kbd {
   position: relative;
 }
 
+/* Collapsed the sidebar narrows to a glyph rail; only outside the library and
+   Zen, where it has nothing to say, does it leave the grid entirely. */
 .workspace-layout-rail-collapsed {
+  grid-template-columns: 3.25rem minmax(0, 1fr);
+}
+
+.workspace-layout-rail-hidden {
   grid-template-columns: minmax(0, 1fr);
 }
 
-.workspace-layout-rail-collapsed .tag-rail,
 .tag-rail.tag-rail-empty {
   display: none;
 }
 
 .workspace-rail-toggle {
+  align-items: center;
   background: transparent;
   border: var(--rule) solid var(--color-border);
   border-radius: var(--radius);
-  color: var(--color-text-muted);
-  font-size: var(--font-size-xs);
-  min-height: 2rem;
-  padding: 0 var(--space-2);
+  color: var(--color-text-soft);
+  display: inline-flex;
+  flex: 0 0 auto;
+  height: 1.875rem;
+  justify-content: center;
+  min-height: 0;
+  padding: 0;
+  width: 1.875rem;
+}
+
+.rail-toggle-glyph {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1875rem;
+}
+
+.rail-toggle-glyph span {
+  background: currentcolor;
+  height: var(--rule);
+  width: 0.75rem;
 }
 
 .mobile-actions {
@@ -2255,6 +2277,89 @@ kbd {
   min-height: 0;
   overflow: hidden;
   padding: 1rem 0;
+}
+
+/* A wrapper only so the collapse has one thing to hide; it stays out of the
+   rail's own column so `margin-top: auto` on the utilities still reaches the
+   bottom of the sidebar. */
+.rail-full {
+  display: contents;
+}
+
+.tag-rail-collapsed {
+  padding: 0.875rem 0;
+}
+
+.tag-rail-collapsed .rail-full {
+  display: none;
+}
+
+.tag-rail-collapsed .rail-glyphs {
+  display: flex;
+}
+
+.rail-glyphs {
+  align-items: center;
+  display: none;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-height: 0;
+  width: 100%;
+}
+
+.rail-glyphs button {
+  align-items: center;
+  background: transparent;
+  border: var(--rule) solid transparent;
+  border-radius: var(--radius);
+  color: var(--color-text-soft);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: var(--font-size-sm);
+  height: 2.125rem;
+  justify-content: center;
+  min-height: 0;
+  padding: 0;
+  width: 2.125rem;
+}
+
+.rail-glyphs .rail-glyph-quiet {
+  color: var(--color-text-muted);
+}
+
+.rail-glyphs button[aria-current="page"] {
+  background: var(--color-surface-raised);
+  border-color: var(--color-border-strong);
+  color: var(--color-accent-strong);
+}
+
+.rail-glyph-divider {
+  background: var(--color-border-subtle);
+  flex: 0 0 auto;
+  height: var(--rule);
+  margin: var(--space-2) 0;
+  width: 1.25rem;
+}
+
+/* Settings sits at the foot of the rail the way it does in the open sidebar. */
+.rail-glyph-spacer {
+  margin-top: auto;
+}
+
+/* A finger needs the full control height, and the rail is only ever as wide as
+   the targets it holds. */
+@media (pointer: coarse) {
+  .workspace-rail-toggle,
+  .rail-glyphs button {
+    height: var(--control-height);
+    min-height: var(--control-height);
+    width: var(--control-height);
+  }
+
+  .workspace-layout-rail-collapsed {
+    grid-template-columns: calc(var(--control-height) + 0.75rem) minmax(0, 1fr);
+  }
 }
 
 .rail-nav,
@@ -3251,10 +3356,13 @@ kbd {
     overflow: visible;
   }
 
-  .workspace-layout-rail-collapsed .tag-rail:not(.tag-rail-empty) {
-    display: flex;
+  /* The strip is the phone's whole navigation, so it never collapses and the
+     glyph rail — which exists to save horizontal room — has no job here. */
+  .tag-rail-collapsed .rail-full {
+    display: contents;
   }
 
+  .tag-rail-collapsed .rail-glyphs,
   .workspace-rail-toggle {
     display: none;
   }
