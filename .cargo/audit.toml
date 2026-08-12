@@ -8,9 +8,16 @@ ignore = [
   # Loro 1.13.7 uses im::HashMap and im::HashSet, not the OrdSet insertion
   # affected by RUSTSEC-2023-0126. Upstream still carries im 15.1.0 as of
   # Loro 1.14.1. Issue #170 tracks replacing this pinned dependency and
-  # removing all four exceptions below.
+  # removing all five exceptions below.
   "RUSTSEC-2023-0126",
   "RUSTSEC-2026-0247",
   "RUSTSEC-2026-0248",
   "RUSTSEC-2026-0251",
+  # RUSTSEC-2026-0255 is the same archived sized-chunks that 0251 reports as
+  # unmaintained, now with a panic-safety finding and no patched version to
+  # move to. It reaches us only through im 15.1.0, and the unsoundness needs
+  # an element destructor to panic: the values ResearchPocket stores are
+  # strings, booleans and integers, whose drops cannot. Nothing to move to
+  # short of #170.
+  "RUSTSEC-2026-0255",
 ]
