@@ -995,6 +995,29 @@ export function App() {
                 <span>{pushedScreen.label}</span>
               </button>
             ) : null}
+            {/* Ahead of the wordmark, where the design puts it: the control
+                belongs to the panel it opens, not to the brand. */}
+            {railApplies ? (
+              <button
+                aria-controls="workspace-sidebar"
+                aria-expanded={!railCollapsed}
+                className="workspace-rail-toggle"
+                onClick={() => setRailCollapsed((collapsed) => !collapsed)}
+                title={railCollapsed ? "Show sidebar" : "Hide sidebar"}
+                type="button"
+              >
+                {/* Three rules rather than the word "sidebar": the button sits
+                    beside the wordmark, where a second label competes with it. */}
+                <span aria-hidden="true" className="rail-toggle-glyph">
+                  <span />
+                  <span />
+                  <span />
+                </span>
+                <span className="sr-only">
+                  {railCollapsed ? "Show sidebar" : "Hide sidebar"}
+                </span>
+              </button>
+            ) : null}
             <button
               aria-label={view === "library" ? "ResearchPocket library" : "Back to library"}
               className="brand-lockup"
@@ -1009,21 +1032,6 @@ export function App() {
                   say which screen it is on, so the two swap places there. */}
               <p className="brand-view">{formatViewLabel(view)}</p>
             </button>
-            {railApplies ? (
-              <button
-                aria-controls="workspace-sidebar"
-                aria-expanded={!railCollapsed}
-                className="workspace-rail-toggle"
-                onClick={() => setRailCollapsed((collapsed) => !collapsed)}
-                title={railCollapsed ? "Show sidebar" : "Hide sidebar"}
-                type="button"
-              >
-                <span aria-hidden="true">{railCollapsed ? "sidebar →" : "sidebar ←"}</span>
-                <span className="sr-only">
-                  {railCollapsed ? "Show sidebar" : "Hide sidebar"}
-                </span>
-              </button>
-            ) : null}
           </div>
 
           <div className="masthead-actions">
@@ -1083,24 +1091,40 @@ export function App() {
       </div>
 
       <div
-        className={`workspace-layout${railCollapsed || !railApplies ? " workspace-layout-rail-collapsed" : ""}`}
+        className={`workspace-layout${
+          !railApplies
+            ? " workspace-layout-rail-hidden"
+            : railCollapsed
+              ? " workspace-layout-rail-collapsed"
+              : ""
+        }`}
       >
         <aside
-          className={`tag-rail${railApplies ? "" : " tag-rail-empty"}`}
+          className={`tag-rail${railApplies ? "" : " tag-rail-empty"}${
+            railCollapsed ? " tag-rail-collapsed" : ""
+          }`}
           id="workspace-sidebar"
         >
-          <nav aria-label="Library views" className="rail-nav">
+          {/* Collapsed, the sidebar keeps its destinations as a glyph rail
+              instead of leaving the screen: the counts and the tag list are
+              what there is no room for, not the navigation. CSS shows exactly
+              one of these two, so only one reaches the accessibility tree. */}
+          <nav aria-label="Workspace navigation" className="rail-glyphs">
             <button
-              aria-current={view === "library" && filter === "active" && !favoriteOnly ? "page" : undefined}
+              aria-current={
+                view === "library" && filter === "active" && !favoriteOnly ? "page" : undefined
+              }
               onClick={() => {
                 navigateToView("library");
                 setFilter("active");
                 setFavoriteOnly(false);
                 setSelectedTags([]);
               }}
+              title="All saves"
               type="button"
             >
-              <span>All saves</span><small>{activeCount}</small>
+              <span aria-hidden="true">▣</span>
+              <span className="sr-only">All saves</span>
             </button>
             <button
               aria-current={view === "library" && favoriteOnly ? "page" : undefined}
@@ -1110,10 +1134,11 @@ export function App() {
                 setFavoriteOnly(true);
                 setSelectedTags([]);
               }}
+              title="Favorites"
               type="button"
             >
-              <span>★ Favorites</span>
-              <small>{items.filter((item) => !item.deleted && item.favorite).length}</small>
+              <span aria-hidden="true">★</span>
+              <span className="sr-only">Favorites</span>
             </button>
             <button
               aria-current={view === "library" && filter === "deleted" ? "page" : undefined}
@@ -1123,108 +1148,192 @@ export function App() {
                 setFavoriteOnly(false);
                 setSelectedTags([]);
               }}
+              title="Archive"
               type="button"
             >
-              <span>Archive</span><small>{deletedCount}</small>
+              <span aria-hidden="true">▤</span>
+              <span className="sr-only">Archive</span>
             </button>
-            {/* The strip is the phone's whole navigation, and the heading row
-                that carries the desktop's List/Graph control is not on it. */}
+
+            <span aria-hidden="true" className="rail-glyph-divider" />
+
             <button
-              aria-current={
-                view === "library" && libraryMode === "graph" ? "page" : undefined
-              }
-              className="mobile-graph-toggle"
+              aria-current={view === "zen" ? "page" : undefined}
               onClick={() => {
-                navigateToView("library");
-                changeLibraryMode(libraryMode === "graph" ? "list" : "graph");
+                setOpenZen(null);
+                navigateToView("zen");
               }}
+              title="Zen documents"
               type="button"
             >
-              <span>Graph</span>
+              <span aria-hidden="true">¶</span>
+              <span className="sr-only">Zen documents</span>
+            </button>
+            {/* Tags are a list, and a list has nowhere to go in a 52px rail, so
+                the tag glyph is the way back to the full sidebar. */}
+            <button
+              aria-controls="workspace-sidebar"
+              aria-expanded={false}
+              onClick={() => setRailCollapsed(false)}
+              title="Tags"
+              type="button"
+            >
+              <span aria-hidden="true">#</span>
+              <span className="sr-only">Tags — show sidebar</span>
+            </button>
+
+            <span aria-hidden="true" className="rail-glyph-spacer" />
+
+            <button
+              aria-current={view === "settings" ? "page" : undefined}
+              className="rail-glyph-quiet"
+              onClick={() => navigateToView("settings")}
+              title="Settings"
+              type="button"
+            >
+              <span aria-hidden="true">⚙</span>
+              <span className="sr-only">Settings</span>
             </button>
           </nav>
 
-          <div className="rail-tags">
-            <div className="rail-heading">
-              <p>Zen</p>
-            </div>
-            <nav aria-label="Zen" className="rail-nav">
+          <div className="rail-full">
+            <nav aria-label="Library views" className="rail-nav">
               <button
-                aria-current={view === "zen" ? "page" : undefined}
+                aria-current={view === "library" && filter === "active" && !favoriteOnly ? "page" : undefined}
                 onClick={() => {
-                  // Closes the open document too, or this reads as a dead
-                  // control for anyone already inside one.
-                  setOpenZen(null);
-                  navigateToView("zen");
+                  navigateToView("library");
+                  setFilter("active");
+                  setFavoriteOnly(false);
+                  setSelectedTags([]);
                 }}
                 type="button"
               >
-                {/* The rail heading says ZEN above it; the chip strip drops
-                    headings, so the chip has to name itself. */}
-                <span className="rail-label-wide">Documents</span>
-                <span className="rail-label-narrow">Zen</span>
-                <small>{zenDocuments.length}</small>
+                <span>All saves</span><small>{activeCount}</small>
+              </button>
+              <button
+                aria-current={view === "library" && favoriteOnly ? "page" : undefined}
+                onClick={() => {
+                  navigateToView("library");
+                  setFilter("active");
+                  setFavoriteOnly(true);
+                  setSelectedTags([]);
+                }}
+                type="button"
+              >
+                <span>★ Favorites</span>
+                <small>{items.filter((item) => !item.deleted && item.favorite).length}</small>
+              </button>
+              <button
+                aria-current={view === "library" && filter === "deleted" ? "page" : undefined}
+                onClick={() => {
+                  navigateToView("library");
+                  setFilter("deleted");
+                  setFavoriteOnly(false);
+                  setSelectedTags([]);
+                }}
+                type="button"
+              >
+                <span>Archive</span><small>{deletedCount}</small>
+              </button>
+              {/* The strip is the phone's whole navigation, and the heading row
+                  that carries the desktop's List/Graph control is not on it. */}
+              <button
+                aria-current={
+                  view === "library" && libraryMode === "graph" ? "page" : undefined
+                }
+                className="mobile-graph-toggle"
+                onClick={() => {
+                  navigateToView("library");
+                  changeLibraryMode(libraryMode === "graph" ? "list" : "graph");
+                }}
+                type="button"
+              >
+                <span>Graph</span>
+              </button>
+            </nav>
+
+            <div className="rail-tags">
+              <div className="rail-heading">
+                <p>Zen</p>
+              </div>
+              <nav aria-label="Zen" className="rail-nav">
+                <button
+                  aria-current={view === "zen" ? "page" : undefined}
+                  onClick={() => {
+                    // Closes the open document too, or this reads as a dead
+                    // control for anyone already inside one.
+                    setOpenZen(null);
+                    navigateToView("zen");
+                  }}
+                  type="button"
+                >
+                  {/* The rail heading says ZEN above it; the chip strip drops
+                      headings, so the chip has to name itself. */}
+                  <span className="rail-label-wide">Documents</span>
+                  <span className="rail-label-narrow">Zen</span>
+                  <small>{zenDocuments.length}</small>
+                </button>
+              </nav>
+            </div>
+
+            {/* Tags belong to the library, but they stay reachable from Zen: on a
+                phone this strip is the whole navigation, and a filter that
+                disappears when a document opens is a filter nobody trusts. */}
+            <div className="rail-tags">
+              <div className="rail-heading">
+                <p>Tags</p>
+                {/* With the omnibar carrying search and saving, this is the way
+                    into the filters the strip has no room for. */}
+                <button
+                  aria-controls="library-filters"
+                  aria-expanded={filtersOpen}
+                  onClick={() => setFiltersOpen((open) => !open)}
+                  type="button"
+                >
+                  {appliedFilterCount > 0
+                    ? `filters · ${appliedFilterCount}`
+                    : hiddenTagCount > 0
+                      ? `+${hiddenTagCount} more`
+                      : "manage"}
+                </button>
+              </div>
+              <div className="rail-tag-list">
+                {railTags.map(({ count, tag }) => (
+                  <button
+                    aria-current={selectedTags.includes(tag) ? "page" : undefined}
+                    key={tag}
+                    onClick={() => toggleTagFilter(tag)}
+                    type="button"
+                  >
+                    <span>#{tag}</span><small>{count}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <button
+              aria-controls="library-filters"
+              aria-expanded={filtersOpen}
+              className="mobile-tag-filter-trigger"
+              onClick={() => setFiltersOpen(true)}
+              type="button"
+            >
+              Filters{appliedFilterCount > 0 ? ` · ${appliedFilterCount}` : ""}
+            </button>
+
+            <nav aria-label="Workspace utilities" className="rail-utilities">
+              <button onClick={() => navigateToView("sync")} type="button">
+                <span>Sync</span><small>{libraryState.pendingCount} pending</small>
+              </button>
+              <button
+                aria-current={view === "settings" ? "page" : undefined}
+                onClick={() => navigateToView("settings")}
+                type="button"
+              >
+                <span>Settings</span>
               </button>
             </nav>
           </div>
-
-          {/* Tags belong to the library, but they stay reachable from Zen: on a
-              phone this strip is the whole navigation, and a filter that
-              disappears when a document opens is a filter nobody trusts. */}
-          <div className="rail-tags">
-            <div className="rail-heading">
-              <p>Tags</p>
-              {/* With the omnibar carrying search and saving, this is the way
-                  into the filters the strip has no room for. */}
-              <button
-                aria-controls="library-filters"
-                aria-expanded={filtersOpen}
-                onClick={() => setFiltersOpen((open) => !open)}
-                type="button"
-              >
-                {appliedFilterCount > 0
-                  ? `filters · ${appliedFilterCount}`
-                  : hiddenTagCount > 0
-                    ? `+${hiddenTagCount} more`
-                    : "manage"}
-              </button>
-            </div>
-            <div className="rail-tag-list">
-              {railTags.map(({ count, tag }) => (
-                <button
-                  aria-current={selectedTags.includes(tag) ? "page" : undefined}
-                  key={tag}
-                  onClick={() => toggleTagFilter(tag)}
-                  type="button"
-                >
-                  <span>#{tag}</span><small>{count}</small>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <button
-            aria-controls="library-filters"
-            aria-expanded={filtersOpen}
-            className="mobile-tag-filter-trigger"
-            onClick={() => setFiltersOpen(true)}
-            type="button"
-          >
-            Filters{appliedFilterCount > 0 ? ` · ${appliedFilterCount}` : ""}
-          </button>
-
-          <nav aria-label="Workspace utilities" className="rail-utilities">
-            <button onClick={() => navigateToView("sync")} type="button">
-              <span>Sync</span><small>{libraryState.pendingCount} pending</small>
-            </button>
-            <button
-              aria-current={view === "settings" ? "page" : undefined}
-              onClick={() => navigateToView("settings")}
-              type="button"
-            >
-              <span>Settings</span>
-            </button>
-          </nav>
         </aside>
 
         <main id="workspace" tabIndex={-1}>
