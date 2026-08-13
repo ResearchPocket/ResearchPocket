@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -110,6 +111,15 @@ export function LibraryGraph({
     ? (projection.nodes.find((node) => node.id === selectedId) ?? null)
     : null;
   const selectedItem = selected ? sourceItem(selected, items) : undefined;
+
+  // The inspector is what a selection is for, so selecting brings it back.
+  // Without this, closing it once would strand every later selection in a
+  // panel nobody can see — and the toolbar no longer carries a way to reopen.
+  const selectNode = useCallback((id: string | null) => {
+    setSelectedId(id);
+    if (id) setInspectorOpen(true);
+  }, []);
+
   // Degree order puts the hubs first, which is the order someone stepping
   // through the graph by keyboard actually wants to meet it in.
   const traversal = useMemo(
@@ -126,7 +136,7 @@ export function LibraryGraph({
     const canvas = canvasRef.current;
     if (!canvas) return;
     const created = createSimulation(canvas, {
-      onSelect: (id) => setSelectedId(id),
+      onSelect: (id) => selectNode(id),
       onScale: (value) => setZoom(value),
       onPinnedChange: (count) => setPinnedCount(count),
       onUnavailable: () => setUnavailable(true),
@@ -230,7 +240,7 @@ export function LibraryGraph({
     const index = ((cursor % neighbours.length) + neighbours.length) % neighbours.length;
     cursors.current.set(node.id, index);
     const target = neighbours[index]!.id;
-    setSelectedId(target);
+    selectNode(target);
     simulation.current?.center(target);
     document.getElementById(nodeButtonId(target))?.focus();
   }
@@ -240,8 +250,8 @@ export function LibraryGraph({
   // tick, and reconciling thousands of buttons against it would cost more than
   // the frame it is competing with. Handlers go through a ref so the list can
   // depend on the projection and nothing else.
-  const actions = useRef({ openSelection, stepNeighbour, select: setSelectedId });
-  actions.current = { openSelection, stepNeighbour, select: setSelectedId };
+  const actions = useRef({ openSelection, stepNeighbour, select: selectNode });
+  actions.current = { openSelection, stepNeighbour, select: selectNode };
 
   const nodeList = useMemo(
     () => (
@@ -287,39 +297,10 @@ export function LibraryGraph({
 
   return (
     <div className="library-graph">
+      {/* Filters only. The camera and the key belong to the drawing, and they
+          live on it — a toolbar carrying both plus a panel toggle was ten
+          controls deep and scrolled sideways before the filters were reached. */}
       <div className="graph-toolbar">
-        {drawable ? (
-          <div aria-label="Graph camera" className="graph-camera" role="group">
-            <button
-              aria-label="Zoom out"
-              onClick={() => simulation.current?.zoomBy(0.8)}
-              type="button"
-            >
-              −
-            </button>
-            <output aria-label="Zoom level">{Math.round(zoom * 100)}%</output>
-            <button
-              aria-label="Zoom in"
-              onClick={() => simulation.current?.zoomBy(1.25)}
-              type="button"
-            >
-              +
-            </button>
-            <button
-              disabled={!selected}
-              onClick={() => selected && simulation.current?.focus(selected.id)}
-              type="button"
-            >
-              Focus
-            </button>
-            <button
-              onClick={() => simulation.current?.reset()}
-              type="button"
-            >
-              Fit all
-            </button>
-          </div>
-        ) : null}
         <button
           aria-pressed={showTags}
           onClick={() => setShowTags((value) => !value)}
@@ -341,26 +322,6 @@ export function LibraryGraph({
         >
           orphans · {orphansOnly ? "only" : full.orphans.length}
         </button>
-        {drawable ? (
-          <button
-            aria-controls="graph-legend"
-            aria-expanded={legendOpen}
-            onClick={() => setLegendOpen((value) => !value)}
-            type="button"
-          >
-            legend
-          </button>
-        ) : null}
-        {!narrow ? (
-          <button
-            aria-controls="graph-inspector"
-            aria-expanded={inspectorOpen}
-            onClick={() => setInspectorOpen((open) => !open)}
-            type="button"
-          >
-            details
-          </button>
-        ) : null}
         {pinnedCount > 0 ? (
           <button
             className="graph-release"
@@ -459,6 +420,38 @@ export function LibraryGraph({
                   </div>
                 </dl>
               ) : null}
+
+              {/* Its own toggle sits under it, on the drawing it explains. */}
+              <button
+                aria-controls="graph-legend"
+                aria-expanded={legendOpen}
+                className="graph-key-toggle"
+                onClick={() => setLegendOpen((value) => !value)}
+                type="button"
+              >
+                key
+              </button>
+
+              <div aria-label="Graph camera" className="graph-camera" role="group">
+                <button
+                  aria-label="Zoom out"
+                  onClick={() => simulation.current?.zoomBy(0.8)}
+                  type="button"
+                >
+                  −
+                </button>
+                <output aria-label="Zoom level">{Math.round(zoom * 100)}%</output>
+                <button
+                  aria-label="Zoom in"
+                  onClick={() => simulation.current?.zoomBy(1.25)}
+                  type="button"
+                >
+                  +
+                </button>
+                <button onClick={() => simulation.current?.reset()} type="button">
+                  reset
+                </button>
+              </div>
             </>
           ) : null}
 
@@ -473,9 +466,26 @@ export function LibraryGraph({
           className={`graph-inspector${!narrow && !inspectorOpen ? " graph-inspector-closed" : ""}`}
           id="graph-inspector"
         >
+          {/* The right of this row used to hold the kind label, which rendered
+              as a bare em dash with nothing selected — a dash sitting exactly
+              where a close button belongs, which is what it got clicked as.
+              The label moved left; the slot now holds the control it looked
+              like. Selecting anything opens the panel again. */}
           <div className="graph-inspector-heading">
-            <p>Selected</p>
-            <span>{selected ? kindLabel(selected) : "—"}</span>
+            <p>{selected ? kindLabel(selected) : "Selected"}</p>
+            {!narrow ? (
+              <button
+                aria-controls="graph-inspector"
+                aria-expanded={inspectorOpen}
+                className="graph-inspector-close"
+                onClick={() => setInspectorOpen(false)}
+                title="Close details"
+                type="button"
+              >
+                <span aria-hidden="true">×</span>
+                <span className="sr-only">Close details</span>
+              </button>
+            ) : null}
           </div>
 
           {/* The selection is announced here rather than marked on the node

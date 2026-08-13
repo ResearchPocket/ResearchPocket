@@ -5695,17 +5695,27 @@ kbd {
   padding-bottom: var(--space-3);
 }
 
+/* On the drawing, bottom right, opposite the key. Unlike the other overlays
+   this one is a control, so it keeps its pointer events. */
 .graph-camera {
   align-items: center;
-  border: var(--rule) solid var(--color-border-strong);
+  background: var(--color-surface);
+  border: var(--rule) solid var(--color-border-subtle);
   border-radius: var(--radius);
+  bottom: 0.75rem;
   display: flex;
-  flex: 0 0 auto;
   overflow: hidden;
+  position: absolute;
+  right: 0.75rem;
 }
 
-.graph-toolbar .graph-camera button {
+.graph-camera button {
+  background: transparent;
   border: 0;
+  color: var(--color-text-soft);
+  font-size: var(--font-size-xs);
+  min-height: var(--graph-overlay-control);
+  padding: 0 0.625rem;
 }
 
 .graph-camera button + button,
@@ -5738,11 +5748,6 @@ kbd {
   color: var(--color-accent-strong);
 }
 
-.graph-toolbar button[aria-expanded="true"] {
-  border-color: var(--color-border-strong);
-  color: var(--color-accent-strong);
-}
-
 .graph-release {
   margin-left: auto;
 }
@@ -5760,6 +5765,9 @@ kbd {
 }
 
 .graph-stage {
+  /* Both bottom overlays are this tall, and the key popover stacks off it. */
+  --graph-overlay-control: 1.875rem;
+
   min-height: 24rem;
   min-width: 0;
   position: relative;
@@ -5803,12 +5811,31 @@ kbd {
   color: var(--color-accent-strong);
 }
 
+/* Stacked above its own toggle, which holds the bottom-left corner. */
 .graph-legend {
-  bottom: 0.75rem;
+  bottom: calc(0.75rem + var(--graph-overlay-control) + var(--space-2));
   display: grid;
   gap: 0.3rem;
   left: 0.75rem;
   padding: 0.625rem 0.75rem;
+}
+
+.graph-key-toggle {
+  background: var(--color-surface);
+  border: var(--rule) solid var(--color-border-subtle);
+  border-radius: var(--radius);
+  bottom: 0.75rem;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  left: 0.75rem;
+  min-height: var(--graph-overlay-control);
+  padding: 0 0.625rem;
+  position: absolute;
+}
+
+.graph-key-toggle[aria-expanded="true"] {
+  border-color: var(--color-border-strong);
+  color: var(--color-accent-strong);
 }
 
 .graph-legend div {
@@ -5938,6 +5965,40 @@ kbd {
 .graph-inspector-heading span {
   color: var(--color-text-muted);
   font-size: var(--font-size-xs);
+}
+
+.graph-inspector-close {
+  align-items: center;
+  background: transparent;
+  border: var(--rule) solid transparent;
+  border-radius: var(--radius);
+  color: var(--color-text-muted);
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: var(--font-size-sm);
+  height: 1.5rem;
+  justify-content: center;
+  min-height: 0;
+  padding: 0;
+  width: 1.5rem;
+}
+
+/* The sheet's coarse-pointer rule sits above the graph's own sizing, so the
+   later value wins and these have to restate it here. */
+@media (pointer: coarse) {
+  .graph-stage {
+    --graph-overlay-control: var(--control-height);
+  }
+
+  .graph-toolbar button {
+    min-height: var(--control-height);
+  }
+
+  .graph-inspector-close {
+    height: var(--control-height);
+    min-height: var(--control-height);
+    width: var(--control-height);
+  }
 }
 
 .graph-inspector-subject {
@@ -6105,6 +6166,12 @@ kbd {
 
   .graph-stage {
     min-height: 18rem;
+  }
+
+  /* Two fingers already zoom, and a stepper is a lot of chrome to lay over
+     18rem of drawing to say the same thing twice. */
+  .graph-camera {
+    display: none;
   }
 
   .graph-neighbourhood {
