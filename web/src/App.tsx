@@ -394,7 +394,11 @@ export function App() {
 
       if (event.key === "Escape") {
         setCommandOpen(false);
-        closeReader();
+        if (filtersOpen) {
+          setFiltersOpen(false);
+        } else {
+          closeReader();
+        }
         return;
       }
 
@@ -420,7 +424,7 @@ export function App() {
 
     window.addEventListener("keydown", handleShortcut);
     return () => window.removeEventListener("keydown", handleShortcut);
-  }, [busyAction, undoNotice]);
+  }, [busyAction, filtersOpen, undoNotice, view]);
 
   // Pasting a URL with nothing focused stages it in the omnibar and puts the
   // caret there. It stops short of saving: writing an item straight from the
@@ -544,7 +548,7 @@ export function App() {
         (tag) =>
           !normalizedSearch || tag.toLocaleLowerCase().includes(normalizedSearch),
       )
-      .slice(0, 50);
+      .slice(0, normalizedSearch ? 20 : 8);
   }, [knownTags, selectedTags, tagSearch]);
   const appliedFilterCount =
     Number(filter !== "active") +
@@ -594,6 +598,7 @@ export function App() {
     if (nextUrl !== currentUrl) {
       window.history.pushState(window.history.state, "", nextUrl);
     }
+    setReaderItem(null);
     setView(nextView);
   }
 
@@ -876,11 +881,11 @@ export function App() {
     setEditingItem(item);
   }
 
-  function openReader(item: LibraryItemView, replace = false) {
+  function openReader(item: LibraryItemView) {
     const nextUrl = `${window.location.pathname}${window.location.search}#item=${encodeURIComponent(item.id)}`;
     const nextState = { ...window.history.state, researchPocketReader: true };
-    if (replace) window.history.replaceState(nextState, "", nextUrl);
-    else window.history.pushState(nextState, "", nextUrl);
+    window.history.pushState(nextState, "", nextUrl);
+    setView("library");
     setReaderItem(item);
   }
 
@@ -945,20 +950,13 @@ export function App() {
   const repositoryError = readStateError(libraryState.error);
   const displayedError = localError ?? repositoryError;
 
-  /**
-   * The two pushed screens — an open document and an open save — share one
-   * shell: the way back sits in the brand slot, the sync chip stays put, and
-   * the content column below is the only thing that differs. On a phone that
-   * back button is the only one there is.
-   */
-  const pushedScreen = readerItem
-    ? { label: "Library", onBack: closeReader }
-    : openZen
-      ? { label: "Zen", onBack: closeZenDocument }
-      : null;
-  // The rail is a library-and-Zen control strip. Elsewhere, and under a pushed
-  // screen, it has nothing to say and an empty strip reads as a fault.
-  const railApplies = (view === "library" || view === "zen") && !pushedScreen;
+  // A Zen document remains a focused writing surface. Saved items, Sync, and
+  // Settings all use the normal workspace shell so navigation does not change
+  // shape as the owner moves through the application.
+  const pushedScreen = openZen
+    ? { label: "Zen", onBack: closeZenDocument }
+    : null;
+  const railApplies = !openZen;
 
   if (libraryState.loading) {
     return <BootScreen />;
@@ -995,27 +993,21 @@ export function App() {
                 <span>{pushedScreen.label}</span>
               </button>
             ) : null}
-            {/* Ahead of the wordmark, where the design puts it: the control
-                belongs to the panel it opens, not to the brand. */}
+            {/* The sidebar control leads the brand as part of one compact
+                header cluster; it is not positioned against the rail seam. */}
             {railApplies ? (
               <button
                 aria-controls="workspace-sidebar"
                 aria-expanded={!railCollapsed}
+                aria-label={railCollapsed ? "Show sidebar" : "Hide sidebar"}
                 className="workspace-rail-toggle"
                 onClick={() => setRailCollapsed((collapsed) => !collapsed)}
                 title={railCollapsed ? "Show sidebar" : "Hide sidebar"}
                 type="button"
               >
-                {/* Three rules rather than the word "sidebar": the button sits
-                    beside the wordmark, where a second label competes with it. */}
-                <span aria-hidden="true" className="rail-toggle-glyph">
-                  <span />
-                  <span />
-                  <span />
-                </span>
-                <span className="sr-only">
-                  {railCollapsed ? "Show sidebar" : "Hide sidebar"}
-                </span>
+                <svg aria-hidden="true" viewBox="0 0 20 20">
+                  <path d="M3 5.5h14M3 10h14M3 14.5h14" />
+                </svg>
               </button>
             ) : null}
             <button
@@ -1185,6 +1177,16 @@ export function App() {
             <span aria-hidden="true" className="rail-glyph-spacer" />
 
             <button
+              aria-current={view === "sync" ? "page" : undefined}
+              className="rail-glyph-quiet"
+              onClick={() => navigateToView("sync")}
+              title="Sync"
+              type="button"
+            >
+              <span aria-hidden="true">↻</span>
+              <span className="sr-only">Sync</span>
+            </button>
+            <button
               aria-current={view === "settings" ? "page" : undefined}
               className="rail-glyph-quiet"
               onClick={() => navigateToView("settings")}
@@ -1287,7 +1289,11 @@ export function App() {
                 <button
                   aria-controls="library-filters"
                   aria-expanded={filtersOpen}
-                  onClick={() => setFiltersOpen((open) => !open)}
+                  onClick={() => {
+                    const toggleInPlace = view === "library" && readerItem === null;
+                    navigateToView("library");
+                    setFiltersOpen(toggleInPlace ? !filtersOpen : true);
+                  }}
                   type="button"
                 >
                   {appliedFilterCount > 0
@@ -1311,18 +1317,12 @@ export function App() {
               </div>
             </div>
 
-            <button
-              aria-controls="library-filters"
-              aria-expanded={filtersOpen}
-              className="mobile-tag-filter-trigger"
-              onClick={() => setFiltersOpen(true)}
-              type="button"
-            >
-              Filters{appliedFilterCount > 0 ? ` · ${appliedFilterCount}` : ""}
-            </button>
-
             <nav aria-label="Workspace utilities" className="rail-utilities">
-              <button onClick={() => navigateToView("sync")} type="button">
+              <button
+                aria-current={view === "sync" ? "page" : undefined}
+                onClick={() => navigateToView("sync")}
+                type="button"
+              >
                 <span>Sync</span><small>{libraryState.pendingCount} pending</small>
               </button>
               <button
@@ -1339,10 +1339,21 @@ export function App() {
         <main id="workspace" tabIndex={-1}>
           <h1 className="sr-only">ResearchPocket owner library</h1>
 
+        {readerItem ? (
+          <ReaderView
+            busy={busyAction !== null}
+            item={items.find((item) => item.id === readerItem.id) ?? readerItem}
+            onBack={closeReader}
+            onDelete={deleteItem}
+            onEdit={openEditor}
+            onFavorite={toggleFavorite}
+          />
+        ) : null}
+
         <SyncPanel
           activeItemIds={new Set(items.filter((item) => !item.deleted).map((item) => item.id))}
           busy={busyAction !== null}
-          hidden={view !== "sync"}
+          hidden={view !== "sync" || readerItem !== null}
           onDeletePendingItem={(itemId) => {
             const item = items.find((candidate) => candidate.id === itemId);
             if (item && !item.deleted) void deleteItem(item);
@@ -1354,7 +1365,7 @@ export function App() {
         <SettingsPanel
           activeProfileId={activeProfileId}
           density={density}
-          hidden={view !== "settings"}
+          hidden={view !== "settings" || readerItem !== null}
           imageBackground={imageBackground}
           onDensityChange={setDensity}
           onImageBackgroundChange={setImageBackground}
@@ -1368,7 +1379,7 @@ export function App() {
         <ZenWorkspace
           busy={busyAction !== null}
           documents={zenDocuments}
-          hidden={view !== "zen"}
+          hidden={view !== "zen" || readerItem !== null}
           onClose={closeZenDocument}
           onCreate={(title) => void createZenDocument(title)}
           onDelete={(documentId) => void removeZenDocument(documentId)}
@@ -1384,7 +1395,7 @@ export function App() {
           aria-busy={searchPending}
           aria-labelledby="library-heading"
           className="library-section"
-          hidden={view !== "library"}
+          hidden={view !== "library" || readerItem !== null}
           id="library"
         >
           <div className="library-heading-row">
@@ -1431,88 +1442,121 @@ export function App() {
             </div>
           </div>
 
-          <Omnibar
-            busy={busyAction !== null}
-            onAdd={addItem}
-            onQueryChange={setQuery}
-            query={query}
-          />
+          <div className="library-search-row">
+            <Omnibar
+              busy={busyAction !== null}
+              onAdd={addItem}
+              onQueryChange={setQuery}
+              query={query}
+            />
+            <button
+              aria-controls="library-filters"
+              aria-expanded={filtersOpen}
+              className="filter-trigger"
+              onClick={() => setFiltersOpen((open) => !open)}
+              type="button"
+            >
+              <svg aria-hidden="true" viewBox="0 0 20 20">
+                <path d="M3 5h14M6 10h8M8.5 15h3" />
+              </svg>
+              <span>Filters</span>
+              {appliedFilterCount > 0 ? (
+                <span className="filter-trigger-count">{appliedFilterCount}</span>
+              ) : null}
+            </button>
+          </div>
 
-          <div className="library-filters" hidden={!filtersOpen} id="library-filters">
-            <div className="filter-heading">
-              <strong>Filter library</strong>
-              <button onClick={() => setFiltersOpen(false)} type="button">Done</button>
+          <div
+            aria-label="Library filters"
+            className="library-filters"
+            hidden={!filtersOpen}
+            id="library-filters"
+            role="region"
+          >
+            <div className="filter-controls">
+              <label>
+                <select
+                  aria-label="Search fields"
+                  id="search-scope"
+                  name="search-scope"
+                  onChange={(event) => setSearchScope(event.target.value as SearchScope)}
+                  value={searchScope}
+                >
+                  <option value="all">All fields</option>
+                  <option value="title">Title</option>
+                  <option value="url">URL</option>
+                  <option value="context">Context</option>
+                  <option value="tags">Tags</option>
+                </select>
+              </label>
+              <label>
+                <select
+                  aria-label="Item state"
+                  id="lifecycle-filter"
+                  name="lifecycle-filter"
+                  onChange={(event) => setFilter(event.target.value as LifecycleFilter)}
+                  value={filter}
+                >
+                  <option value="active">Active {activeCount}</option>
+                  <option value="deleted">Deleted {deletedCount}</option>
+                  <option value="all">All {items.length}</option>
+                </select>
+              </label>
+              <label>
+                <select
+                  aria-label="Sort order"
+                  id="sort-mode"
+                  name="sort-mode"
+                  onChange={(event) => setSortMode(event.target.value as SortMode)}
+                  value={sortMode}
+                >
+                  <option value="recent">Newest</option>
+                  <option value="oldest">Oldest</option>
+                  <option value="title">Title</option>
+                </select>
+              </label>
+              <label className="filter-favorite">
+                <input
+                  checked={favoriteOnly}
+                  id="favorite-filter"
+                  name="favorite-filter"
+                  onChange={(event) => setFavoriteOnly(event.target.checked)}
+                  type="checkbox"
+                />
+                <span>Favorites</span>
+              </label>
+              <div className="filter-actions">
+                {appliedFilterCount > 0 ? (
+                  <button
+                    className="filter-reset"
+                    onClick={() => {
+                      setFilter("active");
+                      setSearchScope("all");
+                      setFavoriteOnly(false);
+                      setSelectedTags([]);
+                      setTagSearch("");
+                      setTagMatchMode("all");
+                      setSortMode("recent");
+                    }}
+                    type="button"
+                  >
+                    Clear
+                  </button>
+                ) : null}
+                <button
+                  aria-label="Close filters"
+                  className="filter-close"
+                  onClick={() => setFiltersOpen(false)}
+                  title="Close filters"
+                  type="button"
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
             </div>
-            <label>
-              <select
-                aria-label="Search fields"
-                id="search-scope"
-                name="search-scope"
-                onChange={(event) => setSearchScope(event.target.value as SearchScope)}
-                value={searchScope}
-              >
-                <option value="all">All fields</option>
-                <option value="title">Title</option>
-                <option value="url">URL</option>
-                <option value="context">Context</option>
-                <option value="tags">Tags</option>
-              </select>
-            </label>
-            <label>
-              <select
-                aria-label="Item state"
-                id="lifecycle-filter"
-                name="lifecycle-filter"
-                onChange={(event) => setFilter(event.target.value as LifecycleFilter)}
-                value={filter}
-              >
-                <option value="active">Active {activeCount}</option>
-                <option value="deleted">Deleted {deletedCount}</option>
-                <option value="all">All {items.length}</option>
-              </select>
-            </label>
-            <label>
-              <select
-                aria-label="Sort order"
-                id="sort-mode"
-                name="sort-mode"
-                onChange={(event) => setSortMode(event.target.value as SortMode)}
-                value={sortMode}
-              >
-                <option value="recent">Newest</option>
-                <option value="oldest">Oldest</option>
-                <option value="title">Title</option>
-              </select>
-            </label>
-            <label className="filter-favorite">
-              <input
-                checked={favoriteOnly}
-                id="favorite-filter"
-                name="favorite-filter"
-                onChange={(event) => setFavoriteOnly(event.target.checked)}
-                type="checkbox"
-              />
-              <span>Favorites only</span>
-            </label>
-            {appliedFilterCount > 0 ? (
-              <button
-                className="filter-reset"
-                onClick={() => {
-                  setFilter("active");
-                  setSearchScope("all");
-                  setFavoriteOnly(false);
-                  setSelectedTags([]);
-                  setTagSearch("");
-                  setTagMatchMode("all");
-                  setSortMode("recent");
-                }}
-                type="button"
-              >
-                Reset
-              </button>
-            ) : null}
             {knownTags.length > 0 ? (
               <fieldset aria-label="Tag filters" className="tag-filter-group">
+                <legend className="sr-only">Tags</legend>
                 <label className="tag-filter-search">
                   <input
                     aria-label="Find tags"
@@ -1520,7 +1564,7 @@ export function App() {
                     id="tag-filter-search"
                     name="tag-filter-search"
                     onChange={(event) => setTagSearch(event.target.value)}
-                    placeholder="Add tag filter"
+                    placeholder="Find a tag…"
                     type="search"
                     value={tagSearch}
                   />
@@ -1661,7 +1705,7 @@ export function App() {
         {/* Zen moved into the chip strip, so this keeps only what the strip and
             the omnibar cannot carry: an authored capture, and Settings. It is
             gone entirely under a pushed screen, which has its own footer. */}
-        {pushedScreen ? null : (
+        {pushedScreen || readerItem ? null : (
           <nav aria-label="Mobile actions" className="mobile-actions">
             <button className="primary-button" onClick={(event) => openCapture(event.currentTarget)} type="button">＋ Save a link</button>
             <button className="secondary-button" onClick={() => navigateToView("settings")} type="button">Settings</button>
@@ -1778,18 +1822,6 @@ export function App() {
         />
       ) : null}
 
-      {readerItem ? (
-        <ReaderView
-          busy={busyAction !== null}
-          item={items.find((item) => item.id === readerItem.id) ?? readerItem}
-          items={visibleItems}
-          onBack={closeReader}
-          onDelete={deleteItem}
-          onEdit={openEditor}
-          onFavorite={toggleFavorite}
-          onSelect={(item) => openReader(item, true)}
-        />
-      ) : null}
     </div>
   );
 }
@@ -2248,45 +2280,127 @@ function SyncPanel({
       hidden={hidden}
     >
       <header className="sync-header">
-        <p className="eyebrow">Remote</p>
-        <h2 id="sync-heading">Private sync</h2>
-        <p>Exchange updates through one private GitHub repository.</p>
+        <div>
+          <h2 id="sync-heading">Sync</h2>
+          <p>Private GitHub repository</p>
+        </div>
+        <div className="sync-state" role="status">
+          <span aria-hidden="true" className="status-dot" />
+          <span>{state.status}</span>
+        </div>
       </header>
 
-      <div className="sync-state" role="status">
-        <span aria-hidden="true" className="status-dot" />
-        <span>{state.status}</span>
-      </div>
+      <div className="sync-layout">
+        <section aria-labelledby="sync-connection-heading" className="sync-connection">
+          <div className="sync-panel-heading">
+            <h3 id="sync-connection-heading">
+              {remote ? "Connection" : "Connect GitHub"}
+            </h3>
+            {remote ? <span>{remote.owner}/{remote.repository}</span> : null}
+          </div>
 
-      {remote ? (
-        <dl className="sync-facts">
-          <div>
-            <dt>Repository</dt>
-            <dd>{remote.owner}/{remote.repository}</dd>
-          </div>
-          <div>
-            <dt>Branch</dt>
-            <dd>{remote.branch}</dd>
-          </div>
-          <div>
-            <dt>Last sync</dt>
-            <dd>
-              {remote.lastSuccessAt ? formatDateTime(remote.lastSuccessAt) : "Never"}
-            </dd>
-          </div>
-          {state.lastCycle ? (
-            <div>
-              <dt>Last cycle</dt>
-              <dd>
-                {state.lastCycle.downloaded + state.lastCycle.aggregatesApplied} down ·{" "}
-                {state.lastCycle.uploaded + state.lastCycle.aggregatesUploaded} up
-              </dd>
-            </div>
+          {remote ? (
+            <dl className="sync-facts">
+              <div>
+                <dt>Repository</dt>
+                <dd>{remote.owner}/{remote.repository}</dd>
+              </div>
+              <div>
+                <dt>Branch</dt>
+                <dd>{remote.branch}</dd>
+              </div>
+              <div>
+                <dt>Last sync</dt>
+                <dd>
+                  {remote.lastSuccessAt ? formatDateTime(remote.lastSuccessAt) : "Never"}
+                </dd>
+              </div>
+              {state.lastCycle ? (
+                <div>
+                  <dt>Last cycle</dt>
+                  <dd>
+                    {state.lastCycle.downloaded + state.lastCycle.aggregatesApplied} down ·{" "}
+                    {state.lastCycle.uploaded + state.lastCycle.aggregatesUploaded} up
+                  </dd>
+                </div>
+              ) : null}
+            </dl>
           ) : null}
-        </dl>
-      ) : null}
 
-      <div className="sync-content">
+          {!remote ? (
+            <form className="sync-form" onSubmit={(event) => void connect(event)}>
+              <div className="sync-repository-fields">
+                <label className="field">
+                  <span>Private repository</span>
+                  <input
+                    autoCapitalize="none"
+                    autoComplete="off"
+                    id="sync-repository"
+                    name="repository"
+                    onChange={(event) => setRepository(event.target.value)}
+                    placeholder="owner/private-repository"
+                    required
+                    spellCheck={false}
+                    value={repository}
+                  />
+                </label>
+                <label className="field">
+                  <span>Branch <small>optional</small></span>
+                  <input
+                    autoCapitalize="none"
+                    autoComplete="off"
+                    id="sync-branch"
+                    name="branch"
+                    onChange={(event) => setBranch(event.target.value)}
+                    placeholder="main"
+                    spellCheck={false}
+                    value={branch}
+                  />
+                </label>
+              </div>
+              <TokenFields />
+              {error ? <p className="sync-error" role="alert">{error}</p> : null}
+              <button className="primary-button" disabled={state.syncing} type="submit">
+                {state.syncing ? "Connecting…" : "Connect"}
+              </button>
+            </form>
+          ) : !state.credentialAvailable ? (
+            <form className="sync-form" onSubmit={(event) => void unlock(event)}>
+              <p className="sync-connection-note">
+                Repository saved. Enter the token again to pull and push.
+              </p>
+              <TokenFields />
+              {error ? <p className="sync-error" role="alert">{error}</p> : null}
+              <button className="primary-button" disabled={state.syncing} type="submit">
+                {state.syncing ? "Synchronizing…" : "Unlock and sync"}
+              </button>
+            </form>
+          ) : (
+            <div className="sync-controls">
+              <p>Token available only in this browser context.</p>
+              {error ? <p className="sync-error" role="alert">{error}</p> : null}
+              <div className="sync-actions">
+                <button
+                  className="primary-button"
+                  disabled={state.syncing}
+                  onClick={() => void syncNow()}
+                  type="button"
+                >
+                  {state.syncing ? "Synchronizing…" : "Sync now"}
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={state.syncing}
+                  onClick={() => browserSync.forgetCredential()}
+                  type="button"
+                >
+                  Forget token
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+
         <PendingSyncChanges
           activeItemIds={activeItemIds}
           changes={pendingChanges}
@@ -2295,81 +2409,6 @@ function SyncPanel({
           onDeleteItem={onDeletePendingItem}
           syncing={state.syncing}
         />
-
-        {!remote ? (
-          <form className="sync-form" onSubmit={(event) => void connect(event)}>
-            <label className="field">
-              <span>Private data repository</span>
-              <input
-                autoCapitalize="none"
-                autoComplete="off"
-                id="sync-repository"
-                name="repository"
-                onChange={(event) => setRepository(event.target.value)}
-                placeholder="owner/private-repository"
-                required
-                spellCheck={false}
-                value={repository}
-              />
-            </label>
-            <label className="field">
-              <span>Branch <small>default branch when blank</small></span>
-              <input
-                autoCapitalize="none"
-                autoComplete="off"
-                id="sync-branch"
-                name="branch"
-                onChange={(event) => setBranch(event.target.value)}
-                placeholder="main"
-                spellCheck={false}
-                value={branch}
-              />
-            </label>
-            <TokenFields />
-            {error ? <p className="sync-error" role="alert">{error}</p> : null}
-            <button className="primary-button" disabled={state.syncing} type="submit">
-              {state.syncing ? "Connecting…" : "Connect private sync"}
-            </button>
-          </form>
-        ) : !state.credentialAvailable ? (
-          <form className="sync-form" onSubmit={(event) => void unlock(event)}>
-            <p>
-              The repository is remembered on this device; the token is not. Enter
-              it again to pull and push queued changes.
-            </p>
-            <TokenFields />
-            {error ? <p className="sync-error" role="alert">{error}</p> : null}
-            <button className="primary-button" disabled={state.syncing} type="submit">
-              {state.syncing ? "Synchronizing…" : "Unlock and sync"}
-            </button>
-          </form>
-        ) : (
-          <div className="sync-controls">
-            <p>
-              The token stays in this browser context only. It never enters the
-              library, a URL, or the service-worker cache.
-            </p>
-            {error ? <p className="sync-error" role="alert">{error}</p> : null}
-            <div className="sync-actions">
-              <button
-                className="primary-button"
-                disabled={state.syncing}
-                onClick={() => void syncNow()}
-                type="button"
-              >
-                {state.syncing ? "Synchronizing…" : "Sync now"}
-              </button>
-              <button
-                className="secondary-button"
-                disabled={state.syncing}
-                onClick={() => browserSync.forgetCredential()}
-                type="button"
-              >
-                Forget token
-              </button>
-            </div>
-          </div>
-        )}
       </div>
     </section>
   );
@@ -2397,11 +2436,11 @@ function PendingSyncChanges({
       className="sync-pending"
     >
       <div className="sync-pending-heading">
-        <h3 id="sync-pending-heading">Local changes waiting</h3>
+        <h3 id="sync-pending-heading">Pending</h3>
         <span>{pluralize(changes.length, "change")}</span>
       </div>
       <p className="sync-pending-help">
-        Outgoing changes stay on this device until GitHub confirms them.
+        Kept locally until GitHub confirms them.
       </p>
 
       {changes.length > 0 ? (
@@ -2431,8 +2470,8 @@ function PendingSyncChanges({
       ) : (
         <p className="sync-pending-empty">
           {hasSynced
-            ? "Everything from this browser is synced."
-            : "No local changes are waiting to sync."}
+            ? "Everything is synced."
+            : "No changes waiting."}
         </p>
       )}
     </section>
@@ -2460,11 +2499,10 @@ function TokenFields() {
           name="remember-for-tab"
           type="checkbox"
         />
-        <span>Keep the token only for this tab session</span>
+        <span>Keep token for this tab</span>
       </label>
       <p className="sync-help">
-        Use an expiring fine-grained token limited to this repository, with
-        Contents read and write. Leave the box off to keep it in memory only.
+        Expiring fine-grained token · this repository only · Contents read/write.
       </p>
     </>
   );
@@ -2791,21 +2829,17 @@ function CommandPalette({
 function ReaderView({
   busy,
   item,
-  items,
   onBack,
   onDelete,
   onEdit,
   onFavorite,
-  onSelect,
 }: {
   busy: boolean;
   item: LibraryItemView;
-  items: LibraryItemView[];
   onBack: () => void;
   onDelete: (item: LibraryItemView) => Promise<void>;
   onEdit: (item: LibraryItemView, opener: HTMLButtonElement) => void;
   onFavorite: (item: LibraryItemView) => Promise<void>;
-  onSelect: (item: LibraryItemView) => void;
 }) {
   const [itemsWithImages, setItemsWithImages] = useState<Set<string>>(
     () => new Set(),
@@ -2893,56 +2927,57 @@ function ReaderView({
   }
 
   return (
-    <div className="reader-view" role="dialog" aria-modal="true" aria-labelledby="reader-title">
-      <aside className="reader-list">
-        <header><button onClick={onBack} type="button">← All saves</button><span>{items.length}</span></header>
-        <ol>
-          {items.map((candidate) => (
-            <li className={candidate.id === item.id ? "reader-selected" : undefined} key={candidate.id}>
-              <button onClick={() => onSelect(candidate)} type="button">
-                <strong>{candidate.title?.trim() || candidate.url}</strong>
-                <span>{readHostname(candidate.url)} · {formatDate(candidate.savedAt)}</span>
-              </button>
-            </li>
-          ))}
-        </ol>
-        <footer><span><b>j/k</b> next</span><span><b>esc</b> back</span></footer>
-      </aside>
+    <section className="reader-view" aria-labelledby="reader-title">
       <article className="reader-article">
-        {/* The pushed-screen title bar. Back sits in the masthead above it, so
-            this row carries the title and the two things a reader does to a
-            save without leaving it. */}
-        <header className="reader-mobile-header">
-          <span className="reader-mobile-title">{label}</span>
-          <button
-            aria-label={item.favorite ? "Remove favorite" : "Favorite"}
-            aria-pressed={item.favorite}
-            className="icon-button"
-            disabled={busy}
-            onClick={() => void onFavorite(item)}
-            type="button"
-          >
-            <span aria-hidden="true">★</span>
+        <header className="reader-toolbar">
+          <button className="reader-back" onClick={onBack} type="button">
+            <span aria-hidden="true">←</span>
+            <span>All saves</span>
           </button>
-          <a
-            aria-label="Open original"
-            className="icon-button"
-            href={item.url}
-            rel="noreferrer"
-            target="_blank"
-          >
-            <span aria-hidden="true">↗</span>
-          </a>
+          <div className="reader-toolbar-actions">
+            <button
+              aria-label={item.favorite ? "Remove favorite" : "Favorite"}
+              aria-pressed={item.favorite}
+              className="icon-button"
+              disabled={busy}
+              onClick={() => void onFavorite(item)}
+              type="button"
+            >
+              <span aria-hidden="true">★</span>
+            </button>
+            <button
+              aria-haspopup="dialog"
+              aria-label="Edit save"
+              className="icon-button"
+              disabled={busy}
+              onClick={(event) => onEdit(item, event.currentTarget)}
+              type="button"
+            >
+              <span aria-hidden="true">✎</span>
+            </button>
+            <a
+              aria-label="Open original"
+              className="icon-button"
+              href={item.url}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <span aria-hidden="true">↗</span>
+            </a>
+            <button
+              aria-label="Archive"
+              className="icon-button danger-button"
+              disabled={busy}
+              onClick={() => void onDelete(item).then(onBack)}
+              type="button"
+            >
+              <span aria-hidden="true">⌫</span>
+            </button>
+          </div>
         </header>
         <div className="reader-content">
           <div className="reader-meta">
             <span>{readHostname(item.url)} · Saved {formatDate(item.savedAt)}</span>
-            <div>
-              <button aria-label={item.favorite ? "Remove favorite" : "Favorite"} disabled={busy} onClick={() => void onFavorite(item)} type="button">★</button>
-              <button aria-haspopup="dialog" aria-label="Edit save" disabled={busy} onClick={(event) => onEdit(item, event.currentTarget)} type="button">✎</button>
-              <a aria-label="Open original" href={item.url} rel="noreferrer" target="_blank">↗</a>
-              <button aria-label="Archive" disabled={busy} onClick={() => void onDelete(item).then(onBack)} type="button">⌫</button>
-            </div>
           </div>
           <h1 id="reader-title">{label}</h1>
           {item.tags.length > 0 ? <p className="reader-tags">{item.tags.map((tag) => <span key={tag}>#{tag}</span>)}</p> : null}
@@ -2970,25 +3005,6 @@ function ReaderView({
             <p className="reader-source">ResearchPocket keeps the URL and your authored context locally. The original page remains at <a href={item.url} rel="noreferrer" target="_blank">{readHostname(item.url)}</a>.</p>
           </div>
         </div>
-        <footer className="reader-mobile-footer">
-          <span>reader · saved copy</span>
-          <button
-            aria-haspopup="dialog"
-            disabled={busy}
-            onClick={(event) => onEdit(item, event.currentTarget)}
-            type="button"
-          >
-            <span aria-hidden="true">✎</span> edit details
-          </button>
-          <button
-            aria-label="Archive this save"
-            disabled={busy}
-            onClick={() => void onDelete(item).then(onBack)}
-            type="button"
-          >
-            <span aria-hidden="true">⌫</span>
-          </button>
-        </footer>
       </article>
       {expandedImage ? (
         <div
@@ -3031,7 +3047,7 @@ function ReaderView({
           </figure>
         </div>
       ) : null}
-    </div>
+    </section>
   );
 }
 
