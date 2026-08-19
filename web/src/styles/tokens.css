@@ -103,6 +103,7 @@
   --control-press-offset: 0.0625rem;
   --measure: 72ch;
   --page-width: 100rem;
+  --reader-measure: 42rem;
   --rule: 1px;
   --radius: 0.125rem;
 }

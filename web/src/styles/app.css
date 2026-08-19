@@ -2932,12 +2932,17 @@ kbd {
   border-color: transparent;
 }
 
+/* The measure is the text column alone. The gutters sit outside it, so the cap
+   has to carry both or a chosen width would arrive that much narrower than it
+   reads. Full width is `--reader-measure: 100%`, which resolves wider than the
+   column can be, so the cap simply never binds. */
 .reader-content {
+  --reader-gutter: clamp(1.5rem, 4vw, 3rem);
   box-sizing: border-box;
   margin-inline: auto;
-  max-width: 74rem;
+  max-width: calc(var(--reader-measure) + var(--reader-gutter) * 2);
   min-width: 0;
-  padding: 2rem clamp(1.5rem, 4vw, 3rem) 4rem;
+  padding: 2rem var(--reader-gutter) 4rem;
   width: 100%;
 }
 
@@ -3743,8 +3748,9 @@ kbd {
   }
 
   .reader-content {
+    --reader-gutter: 1.25rem;
     flex: 1 1 auto;
-    padding: 1.25rem 1.25rem 2rem;
+    padding: 1.25rem var(--reader-gutter) 2rem;
   }
 
   .reader-content h1 {
@@ -4014,6 +4020,13 @@ kbd {
   font-size: var(--font-size-xs);
   margin-top: 0.25rem;
   max-width: 44ch;
+}
+
+/* Selects are full-width by default, which in a space-between row would push
+   the label off the left edge. Here they are a control, not a field. */
+.setting-row select {
+  flex: 0 0 auto;
+  width: 10rem;
 }
 
 .setting-row input {
