@@ -99,7 +99,25 @@ const LIBRARY_MODE_STORAGE_KEY = "researchpocket.ui.library-mode";
 const RAIL_COLLAPSED_STORAGE_KEY = "researchpocket.ui.rail-collapsed";
 const THEME_STORAGE_KEY = "researchpocket.ui.theme";
 const IMAGE_BACKGROUND_STORAGE_KEY = "researchpocket.ui.image-background";
+const READER_MEASURE_STORAGE_KEY = "researchpocket.ui.reader-measure";
 const DEFAULT_IMAGE_BACKGROUND = "#ffffff";
+
+/**
+ * How wide the reader lets a line of text run. The values are the text column
+ * only — the stylesheet adds the gutters back — so they read as a measure and
+ * not as a pane width. `100%` is the one that opts out: it always resolves
+ * wider than the column, so the cap never binds.
+ */
+const READER_MEASURES = [
+  { id: "narrow", label: "Narrow", measure: "34rem" },
+  { id: "medium", label: "Medium", measure: "42rem" },
+  { id: "wide", label: "Wide", measure: "52rem" },
+  { id: "full", label: "Full width", measure: "100%" },
+] as const;
+
+type ReaderMeasure = (typeof READER_MEASURES)[number]["id"];
+
+const DEFAULT_READER_MEASURE: ReaderMeasure = "medium";
 
 const DEFAULT_THEME: ThemeColors = {
   text: "#f5f1e9",
@@ -213,6 +231,9 @@ export function App() {
   const [theme, setTheme] = useState<ThemeColors>(() => readThemePreference());
   const [imageBackground, setImageBackground] = useState(
     () => readImageBackgroundPreference(),
+  );
+  const [readerMeasure, setReaderMeasure] = useState<ReaderMeasure>(() =>
+    readReaderMeasurePreference(),
   );
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [visibleLimit, setVisibleLimit] = useState(LIST_BATCH_SIZE);
@@ -373,6 +394,27 @@ export function App() {
       // The preference remains active for this tab when storage is unavailable.
     }
   }, [imageBackground]);
+
+  useEffect(() => {
+    const choice = READER_MEASURES.find(({ id }) => id === readerMeasure);
+    const root = document.documentElement;
+    // The default lives in tokens.css, so choosing it clears the override
+    // rather than restating the value in two places.
+    if (choice && readerMeasure !== DEFAULT_READER_MEASURE) {
+      root.style.setProperty("--reader-measure", choice.measure);
+    } else {
+      root.style.removeProperty("--reader-measure");
+    }
+    try {
+      if (readerMeasure === DEFAULT_READER_MEASURE) {
+        window.localStorage.removeItem(READER_MEASURE_STORAGE_KEY);
+      } else {
+        window.localStorage.setItem(READER_MEASURE_STORAGE_KEY, readerMeasure);
+      }
+    } catch {
+      // The preference remains active for this tab when storage is unavailable.
+    }
+  }, [readerMeasure]);
 
   useEffect(() => {
     function handleShortcut(event: KeyboardEvent) {
@@ -1370,9 +1412,11 @@ export function App() {
           onDensityChange={setDensity}
           onImageBackgroundChange={setImageBackground}
           onProfilesChanged={refreshProfiles}
+          onReaderMeasureChange={setReaderMeasure}
           onSwitchLibrary={switchLibrary}
           onThemeChange={setTheme}
           profiles={profiles}
+          readerMeasure={readerMeasure}
           theme={theme}
         />
 
@@ -2057,9 +2101,11 @@ function SettingsPanel({
   onDensityChange,
   onImageBackgroundChange,
   onProfilesChanged,
+  onReaderMeasureChange,
   onSwitchLibrary,
   onThemeChange,
   profiles,
+  readerMeasure,
   theme,
 }: {
   activeProfileId: string | null;
@@ -2069,9 +2115,11 @@ function SettingsPanel({
   onDensityChange: (density: Density) => void;
   onImageBackgroundChange: (color: string) => void;
   onProfilesChanged: () => Promise<void>;
+  onReaderMeasureChange: (measure: ReaderMeasure) => void;
   onSwitchLibrary: (profileId: string) => Promise<void>;
   onThemeChange: (theme: ThemeColors) => void;
   profiles: LibraryProfile[];
+  readerMeasure: ReaderMeasure;
   theme: ThemeColors;
 }) {
   const selectedPreset =
@@ -2113,6 +2161,26 @@ function SettingsPanel({
               }
               type="checkbox"
             />
+          </label>
+          <label className="setting-row" htmlFor="reader-measure">
+            <span>
+              <strong>Reading width</strong>
+              <small>
+                How far a line of text runs in an opened save. Anything short of
+                full width is centered in the column.
+              </small>
+            </span>
+            <select
+              id="reader-measure"
+              onChange={(event) =>
+                onReaderMeasureChange(event.target.value as ReaderMeasure)
+              }
+              value={readerMeasure}
+            >
+              {READER_MEASURES.map(({ id, label }) => (
+                <option key={id} value={id}>{label}</option>
+              ))}
+            </select>
           </label>
           <fieldset className="theme-editor">
             <legend>Color theme</legend>
@@ -4065,6 +4133,17 @@ function readImageBackgroundPreference() {
   } catch {
     return DEFAULT_IMAGE_BACKGROUND;
   }
+}
+
+function readReaderMeasurePreference(): ReaderMeasure {
+  try {
+    const stored = window.localStorage.getItem(READER_MEASURE_STORAGE_KEY);
+    const match = READER_MEASURES.find(({ id }) => id === stored);
+    if (match) return match.id;
+  } catch {
+    // Invalid or unavailable storage falls back to the shipped measure.
+  }
+  return DEFAULT_READER_MEASURE;
 }
 
 function isThemeColors(value: unknown): value is ThemeColors {
