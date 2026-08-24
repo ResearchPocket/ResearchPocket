@@ -680,3 +680,143 @@ async fn remote_replay_is_exact_idempotent_and_convergent() {
         second_projection
     );
 }
+
+#[tokio::test]
+async fn reverse_ordered_dependency_chain_retries_to_a_fixed_point() {
+    let root = tempfile::tempdir().expect("temporary test root");
+    let base = V2Store::init(root.path().join("base"))
+        .await
+        .expect("base store");
+    let first_peer = V2Store::init(root.path().join("first-peer"))
+        .await
+        .expect("first peer");
+    let second_peer = V2Store::init(root.path().join("second-peer"))
+        .await
+        .expect("second peer");
+    let first_id = first_peer
+        .sync_identity()
+        .await
+        .expect("first identity")
+        .device_id;
+    let second_id = second_peer
+        .sync_identity()
+        .await
+        .expect("second identity")
+        .device_id;
+    let (leaf, middle) = if first_id < second_id {
+        (&first_peer, &second_peer)
+    } else {
+        (&second_peer, &first_peer)
+    };
+    let identity = base.sync_identity().await.expect("base identity");
+    for peer in [leaf, middle] {
+        peer.adopt_library_id_if_pristine(&identity.library_id)
+            .await
+            .expect("adopt base library");
+    }
+
+    let item = base
+        .create_item(CreateItemRequest {
+            url: "https://example.com/dependency-chain".into(),
+            title: Some("Base".into()),
+            excerpt: None,
+            favorite: false,
+            language: None,
+            saved_at: None,
+            note: String::new(),
+            tags: Vec::new(),
+        })
+        .await
+        .expect("create base item");
+    let predecessor = base.pending_batches().await.expect("base outbox").remove(0);
+    middle
+        .receive_remote_batch(
+            &predecessor.path,
+            &"a".repeat(40),
+            predecessor.envelope_json.as_bytes(),
+        )
+        .await
+        .expect("middle receives predecessor");
+    middle
+        .edit_item(EditItemRequest {
+            item_id: item.id.clone(),
+            title: Some(OptionalTextUpdate::Set("Middle".into())),
+            ..EditItemRequest::default()
+        })
+        .await
+        .expect("create middle operation");
+    let middle_batch = middle
+        .pending_batches()
+        .await
+        .expect("middle outbox")
+        .remove(0);
+
+    leaf.receive_remote_batch(
+        &predecessor.path,
+        &"a".repeat(40),
+        predecessor.envelope_json.as_bytes(),
+    )
+    .await
+    .expect("leaf receives predecessor");
+    leaf.receive_remote_batch(
+        &middle_batch.path,
+        &"b".repeat(40),
+        middle_batch.envelope_json.as_bytes(),
+    )
+    .await
+    .expect("leaf receives middle operation");
+    leaf.edit_item(EditItemRequest {
+        item_id: item.id.clone(),
+        favorite: Some(true),
+        ..EditItemRequest::default()
+    })
+    .await
+    .expect("create leaf operation");
+    let leaf_batch = leaf.pending_batches().await.expect("leaf outbox").remove(0);
+
+    let receiver = V2Store::init(root.path().join("receiver"))
+        .await
+        .expect("receiver store");
+    receiver
+        .adopt_library_id_if_pristine(&identity.library_id)
+        .await
+        .expect("adopt receiver library");
+    receiver
+        .receive_remote_batch(
+            &leaf_batch.path,
+            &"c".repeat(40),
+            leaf_batch.envelope_json.as_bytes(),
+        )
+        .await
+        .expect("receive leaf first");
+    receiver
+        .receive_remote_batch(
+            &middle_batch.path,
+            &"b".repeat(40),
+            middle_batch.envelope_json.as_bytes(),
+        )
+        .await
+        .expect("receive middle second");
+    assert_eq!(receiver.retry_deferred_batches().await.expect("retry"), 2);
+
+    receiver
+        .receive_remote_batch(
+            &predecessor.path,
+            &"a".repeat(40),
+            predecessor.envelope_json.as_bytes(),
+        )
+        .await
+        .expect("receive predecessor last");
+    assert_eq!(receiver.retry_deferred_batches().await.expect("retry"), 0);
+    assert_eq!(
+        receiver
+            .status()
+            .await
+            .expect("receiver status")
+            .deferred_updates,
+        0
+    );
+    let restored = receiver.item(&item.id).await.expect("restored item");
+    assert_eq!(restored.title.as_deref(), Some("Middle"));
+    assert!(restored.favorite);
+}

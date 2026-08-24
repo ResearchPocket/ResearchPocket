@@ -830,7 +830,7 @@ async fn pull_remote(
             }
         }
     }
-    if store.status().await?.deferred_updates > 0 {
+    if store.retry_deferred_batches().await? > 0 {
         return Err(SyncError::Integrity(
             "remote operations have missing causal dependencies".into(),
         ));

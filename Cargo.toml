@@ -1,6 +1,6 @@
 [package]
 name = "research"
-version = "2.2.1"
+version = "2.2.2"
 edition = "2024"
 rust-version = "1.94"
 keywords = ["bookmarks", "reading-list", "local-first", "knowledge", "cli"]
@@ -22,8 +22,8 @@ crossterm = "0.29.0"
 directories = "6.0.0"
 ratatui = { version = "0.30.2", default-features = false, features = ["crossterm_0_29"] }
 reqwest = { version = "0.13.4", features = ["json"] }
-research-domain = { version = "=2.2.1", path = "crates/research-domain" }
-research-store = { version = "=2.2.1", path = "crates/research-store" }
+research-domain = { version = "=2.2.2", path = "crates/research-domain" }
+research-store = { version = "=2.2.2", path = "crates/research-store" }
 scraper = "0.27.0"
 serde = "1.0.228"
 serde_json = "1.0.150"

@@ -3,9 +3,9 @@ use std::collections::BTreeMap;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use chrono::{DateTime, FixedOffset};
 use research_domain::{
-    CheckpointArtifact, CheckpointCoverage, CoverageInterval, Library, LibraryGenesis,
-    UpdateEnvelope, coverage_contains, create_checkpoint, unpack_operation_pack,
-    validate_checkpoint,
+    CanonicalProjection, CheckpointArtifact, CheckpointCoverage, CoverageInterval, Library,
+    LibraryGenesis, UpdateEnvelope, coverage_contains, create_checkpoint,
+    unpack_operation_pack, validate_checkpoint,
 };
 use sqlx::{Row, SqliteConnection};
 
@@ -403,6 +403,57 @@ impl V2Store {
         }
     }
 
+    /// Re-offer persisted envelopes whose predecessors may have arrived later.
+    ///
+    /// An earlier sync can have observed every remote blob while leaving a
+    /// reverse-ordered dependency chain deferred. Running this independently of
+    /// download discovery lets the next sync heal that local intermediate state.
+    pub async fn retry_deferred_batches(&self) -> StoreResult<u64> {
+        let deferred: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM deferred_batches")
+            .fetch_one(&self.pool)
+            .await?;
+        if deferred == 0 {
+            return Ok(0);
+        }
+
+        let local_device_id = self.meta("device_id").await?;
+        let peer_id = peer_id_for_device(&local_device_id)?;
+        let mut connection = self.pool.acquire().await?;
+        sqlx::query("BEGIN IMMEDIATE")
+            .execute(&mut *connection)
+            .await?;
+        let result = async {
+            let state = sqlx::query(
+                "SELECT snapshot, snapshot_sha256 FROM canonical_state WHERE singleton = 1",
+            )
+            .fetch_one(&mut *connection)
+            .await?;
+            let snapshot: Vec<u8> = state.try_get("snapshot")?;
+            let expected_snapshot_sha256: String = state.try_get("snapshot_sha256")?;
+            if sha256_hex(&snapshot) != expected_snapshot_sha256 {
+                return Err(StoreError::InvalidStore(
+                    "canonical snapshot checksum mismatch".into(),
+                ));
+            }
+            let library = Library::from_snapshot(&snapshot, peer_id)?;
+            let before_projection = library.canonical_projection()?;
+            let remaining = replay_deferred_batches(&mut connection, &library).await?;
+            persist_library_state(&mut connection, &library, &before_projection).await?;
+            Ok(remaining)
+        }
+        .await;
+        match result {
+            Ok(remaining) => {
+                sqlx::query("COMMIT").execute(&mut *connection).await?;
+                Ok(remaining)
+            }
+            Err(error) => {
+                let _ = sqlx::query("ROLLBACK").execute(&mut *connection).await;
+                Err(error)
+            }
+        }
+    }
+
     pub async fn record_outbox_attempt(
         &self,
         path: &str,
@@ -588,48 +639,15 @@ async fn apply_remote_batch(
     }
     let library = Library::from_snapshot(&snapshot, peer_id)?;
     let before_projection = library.canonical_projection()?;
-    let incoming_pending = library.import_envelope_has_pending(envelope)?;
-    // A Loro snapshot does not retain an update whose causal predecessor was
-    // absent when that snapshot was exported. Receipted immutable envelopes do
-    // retain it. Replay only the explicitly deferred tail; once a predecessor
-    // arrives, previously deferred effects materialize in this transaction.
-    let deferred = sqlx::query(
-        "SELECT b.device_id, b.sequence, b.envelope_json FROM deferred_batches d \
-         JOIN batches b USING (device_id, sequence) \
-         ORDER BY b.device_id ASC, b.sequence ASC",
-    )
-    .fetch_all(&mut *connection)
-    .await?;
-    for row in deferred {
-        let device_id: String = row.try_get("device_id")?;
-        let sequence: String = row.try_get("sequence")?;
-        let stored_json: String = row.try_get("envelope_json")?;
-        let stored: UpdateEnvelope = serde_json::from_str(&stored_json)?;
-        if !library.import_envelope_has_pending(&stored)? {
-            sqlx::query("DELETE FROM deferred_batches WHERE device_id = ? AND sequence = ?")
-                .bind(device_id)
-                .bind(sequence)
-                .execute(&mut *connection)
-                .await?;
+    let mut incoming_pending = library.import_envelope_has_pending(envelope)?;
+    replay_deferred_batches(connection, &library).await?;
+    if incoming_pending {
+        incoming_pending = library.import_envelope_has_pending(envelope)?;
+        if !incoming_pending {
+            replay_deferred_batches(connection, &library).await?;
         }
     }
-    let new_snapshot = library.export_snapshot()?;
-    let projection = library.canonical_projection()?;
-    let now = now_rfc3339();
-    for (item_id, item) in &projection.items {
-        if before_projection.items.get(item_id) != Some(item) {
-            persist_item_projection(connection, item_id, item).await?;
-        }
-    }
-    sqlx::query(
-        "UPDATE canonical_state SET snapshot = ?, snapshot_sha256 = ?, updated_at = ? \
-         WHERE singleton = 1",
-    )
-    .bind(&new_snapshot)
-    .bind(sha256_hex(&new_snapshot))
-    .bind(&now)
-    .execute(&mut *connection)
-    .await?;
+    let now = persist_library_state(connection, &library, &before_projection).await?;
     sqlx::query(
         "INSERT INTO batches \
          (device_id, sequence, payload_sha256, protocol_version, library_id, path, \
@@ -657,6 +675,83 @@ async fn apply_remote_batch(
         disposition: RemoteBatchDisposition::Applied,
         acknowledged_outbox: false,
     })
+}
+
+/// Retry the deferred set in rounds because one deferred envelope can satisfy
+/// another that sorted before it. A round with no reduction is the fixed point
+/// for the currently available history.
+async fn replay_deferred_batches(
+    connection: &mut SqliteConnection,
+    library: &Library,
+) -> StoreResult<u64> {
+    let rows = sqlx::query(
+        "SELECT b.device_id, b.sequence, b.envelope_json FROM deferred_batches d \
+         JOIN batches b USING (device_id, sequence) \
+         ORDER BY b.device_id ASC, b.sequence ASC",
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+    let mut pending = rows
+        .into_iter()
+        .map(|row| {
+            let device_id: String = row.try_get("device_id")?;
+            let sequence: String = row.try_get("sequence")?;
+            let envelope_json: String = row.try_get("envelope_json")?;
+            let envelope = serde_json::from_str(&envelope_json)?;
+            StoreResult::Ok((device_id, sequence, envelope))
+        })
+        .collect::<StoreResult<Vec<_>>>()?;
+
+    loop {
+        if pending.is_empty() {
+            return Ok(0);
+        }
+        let previous_count = pending.len();
+        let mut unresolved = Vec::new();
+        for (device_id, sequence, envelope) in pending {
+            if library.import_envelope_has_pending(&envelope)? {
+                unresolved.push((device_id, sequence, envelope));
+            } else {
+                sqlx::query(
+                    "DELETE FROM deferred_batches WHERE device_id = ? AND sequence = ?",
+                )
+                .bind(device_id)
+                .bind(sequence)
+                .execute(&mut *connection)
+                .await?;
+            }
+        }
+        if unresolved.len() == previous_count {
+            return u64::try_from(unresolved.len())
+                .map_err(|_| StoreError::NumericRange("deferred batch count"));
+        }
+        pending = unresolved;
+    }
+}
+
+async fn persist_library_state(
+    connection: &mut SqliteConnection,
+    library: &Library,
+    before_projection: &CanonicalProjection,
+) -> StoreResult<String> {
+    let new_snapshot = library.export_snapshot()?;
+    let projection = library.canonical_projection()?;
+    let now = now_rfc3339();
+    for (item_id, item) in &projection.items {
+        if before_projection.items.get(item_id) != Some(item) {
+            persist_item_projection(connection, item_id, item).await?;
+        }
+    }
+    sqlx::query(
+        "UPDATE canonical_state SET snapshot = ?, snapshot_sha256 = ?, updated_at = ? \
+         WHERE singleton = 1",
+    )
+    .bind(&new_snapshot)
+    .bind(sha256_hex(&new_snapshot))
+    .bind(&now)
+    .execute(&mut *connection)
+    .await?;
+    Ok(now)
 }
 
 pub(crate) async fn build_checkpoint_candidate(
