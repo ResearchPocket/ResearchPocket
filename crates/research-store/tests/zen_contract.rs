@@ -1,5 +1,6 @@
 use research_store::{
-    AggregateDisposition, CreateZenDocumentRequest, EditZenDocumentRequest, V2Store,
+    AggregateDisposition, CreateZenDocumentRequest, EditZenDocumentRequest, StoreError,
+    V2Store, ZenListQuery,
 };
 
 /// The workspace list must stay metadata-only and every edit must queue exactly
@@ -55,6 +56,17 @@ async fn zen_documents_project_metadata_and_queue_one_operation_per_edit() {
         .await
         .expect("delete");
     assert!(store.list_zen_documents().await.expect("list").is_empty());
+    assert_eq!(
+        store
+            .list_zen_documents_with(ZenListQuery {
+                include_deleted: true
+            })
+            .await
+            .expect("list")
+            .len(),
+        1,
+        "a deleted document is still reachable by a view that asks for it"
+    );
     store
         .restore_zen_document(&created.document_id)
         .await
@@ -195,4 +207,64 @@ async fn sqlx_scalar(store: &V2Store, query: &'static str) -> i64 {
         .fetch_one(&pool)
         .await
         .expect("scalar query")
+}
+
+/// A whole-body write carries the text it started from, so an editor buffer
+/// cannot silently undo an edit that landed while it was open.
+#[tokio::test]
+async fn a_stale_body_replacement_is_refused_rather_than_merged() {
+    let root = tempfile::tempdir().expect("temporary test root");
+    let store = V2Store::init(root.path().join("library"))
+        .await
+        .expect("store");
+    let created = store
+        .create_zen_document(CreateZenDocumentRequest {
+            body: "first line\n".into(),
+            ..CreateZenDocumentRequest::default()
+        })
+        .await
+        .expect("create document");
+
+    // What an editor opened, before anything else wrote.
+    let opened = "first line\n".to_owned();
+    store
+        .edit_zen_document(EditZenDocumentRequest {
+            document_id: created.document_id.clone(),
+            body: Some("first line\nfrom the other device\n".into()),
+            ..EditZenDocumentRequest::default()
+        })
+        .await
+        .expect("concurrent edit");
+
+    let stale = store
+        .edit_zen_document(EditZenDocumentRequest {
+            document_id: created.document_id.clone(),
+            body: Some("first line\nfrom the stale buffer\n".into()),
+            expected_body: Some(opened),
+            ..EditZenDocumentRequest::default()
+        })
+        .await;
+    assert!(
+        matches!(stale, Err(StoreError::StaleEdit)),
+        "expected a refused stale edit, got {stale:?}"
+    );
+    assert_eq!(
+        store
+            .zen_document(&created.document_id)
+            .await
+            .expect("read back")
+            .body,
+        "first line\nfrom the other device\n"
+    );
+
+    // The same write succeeds once it is sent against what the replica holds.
+    store
+        .edit_zen_document(EditZenDocumentRequest {
+            document_id: created.document_id.clone(),
+            body: Some("agreed\n".into()),
+            expected_body: Some("first line\nfrom the other device\n".into()),
+            ..EditZenDocumentRequest::default()
+        })
+        .await
+        .expect("fresh edit");
 }
