@@ -30,6 +30,13 @@ pub struct EditZenDocumentRequest {
     pub document_id: String,
     pub title: Option<Option<String>>,
     pub body: Option<String>,
+    /// Reject a body replacement unless the current body still has this value.
+    ///
+    /// A whole-body write is spliced against whatever the replica holds now, so
+    /// an editor buffer opened before a concurrent edit landed would silently
+    /// undo it. Interfaces that hold a buffer send what they read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_body: Option<String>,
     pub add_tags: Vec<String>,
     pub remove_tags: Vec<String>,
 }
@@ -41,6 +48,12 @@ impl EditZenDocumentRequest {
             || !self.add_tags.is_empty()
             || !self.remove_tags.is_empty()
     }
+}
+
+/// What a workspace index asks for. Bodies are never part of the answer.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct ZenListQuery {
+    pub include_deleted: bool,
 }
 
 impl V2Store {
@@ -74,6 +87,11 @@ impl V2Store {
         let document_id = request.document_id.clone();
         self.commit_zen(&document_id.clone(), move |context| {
             let aggregate = context.load()?;
+            if let (Some(_), Some(expected)) = (&request.body, &request.expected_body)
+                && &aggregate.body()? != expected
+            {
+                return Err(StoreError::StaleEdit);
+            }
             if let Some(title) = &request.title {
                 aggregate
                     .write_title(&format!("{}/title", context.prefix), title.as_deref())?;
@@ -131,13 +149,23 @@ impl V2Store {
             .map_err(StoreError::from)
     }
 
-    /// Lists documents from the projection, never touching a body.
+    /// Lists active documents from the projection, never touching a body.
     pub async fn list_zen_documents(&self) -> StoreResult<Vec<ZenDocumentSummary>> {
+        self.list_zen_documents_with(ZenListQuery::default()).await
+    }
+
+    /// Lists documents from the projection, never touching a body.
+    pub async fn list_zen_documents_with(
+        &self,
+        query: ZenListQuery,
+    ) -> StoreResult<Vec<ZenDocumentSummary>> {
         let rows = sqlx::query(
             "SELECT document_id, title, byte_length, todo_total, todo_done, created_at, \
-             lifecycle_state FROM zen_documents WHERE lifecycle_state = 'active' \
+             lifecycle_state FROM zen_documents \
+             WHERE (? OR lifecycle_state = 'active') \
              ORDER BY edited_at DESC, document_id ASC",
         )
+        .bind(query.include_deleted)
         .fetch_all(&self.pool)
         .await?;
         let mut summaries = Vec::with_capacity(rows.len());

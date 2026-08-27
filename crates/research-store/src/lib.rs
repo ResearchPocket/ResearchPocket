@@ -28,4 +28,6 @@ pub use model::{
     SyncConfiguration, SyncIdentity,
 };
 pub use store::V2Store;
-pub use zen::{CreateZenDocumentRequest, EditZenDocumentRequest, zen_aggregate_kind};
+pub use zen::{
+    CreateZenDocumentRequest, EditZenDocumentRequest, ZenListQuery, zen_aggregate_kind,
+};

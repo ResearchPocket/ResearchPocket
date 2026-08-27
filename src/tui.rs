@@ -24,9 +24,11 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
+use research_domain::{LifecycleState, MAX_ZEN_BODY_BYTES, ZenDocumentSummary};
 use research_store::{
-    CreateItemRequest, EditItemRequest, EnrichmentStatus as StoreEnrichmentStatus, ListQuery,
-    OptionalTextUpdate, SearchQuery, StoreStatus, StoredItem, V2Store,
+    CreateItemRequest, CreateZenDocumentRequest, EditItemRequest, EditZenDocumentRequest,
+    EnrichmentStatus as StoreEnrichmentStatus, ListQuery, OptionalTextUpdate, SearchQuery,
+    StoreError, StoreStatus, StoredItem, V2Store, ZenListQuery,
 };
 use serde_json::Value;
 use tokio::task::JoinHandle;
@@ -34,11 +36,18 @@ use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
 use crate::{sync, v2};
 
+mod zen;
+
+use zen::{MentionTarget, Mentions, Reader, format_bytes, format_timestamp, mention_ids};
+
 type TuiResult<T> = Result<T, Box<dyn Error>>;
 
 const EVENT_POLL_INTERVAL: Duration = Duration::from_millis(250);
 const ACTION_LATCH_IDLE: Duration = Duration::from_secs(2);
 const MIN_COMFORTABLE_WIDTH: u16 = 72;
+/// Widest prose column the reader will use, gutter included.
+const READING_COLUMN: u16 = 88;
+const GUTTER_WIDTH: u16 = 2;
 const MIN_COMFORTABLE_HEIGHT: u16 = 20;
 
 pub async fn run(store: &V2Store, data_dir: &Path) -> TuiResult<()> {
@@ -192,13 +201,25 @@ impl Drop for TerminalSession {
 }
 
 struct App {
+    workspace: Workspace,
     items: Vec<StoredItem>,
     selected: usize,
     list_state: ListState,
     query: String,
     favorite_only: bool,
     lifecycle: LifecycleFilter,
+    documents: Vec<ZenDocumentSummary>,
+    document_selected: usize,
+    document_list_state: ListState,
+    document_query: String,
+    document_lifecycle: LifecycleFilter,
+    /// The one open document, body included. Dropped when the reader closes,
+    /// so no body and no derived mention map outlives the view.
+    reader: Option<Reader>,
     status: StoreStatus,
+    /// Aggregate-scoped operations waiting to upload. Document work queues
+    /// here rather than in the protocol-v1 outbox `status` counts.
+    aggregates_pending: u64,
     mode: Mode,
     notice: Option<Notice>,
     detail_scroll: u16,
@@ -212,13 +233,21 @@ impl App {
     async fn load(store: &V2Store) -> TuiResult<Self> {
         let status = store.status().await?;
         let mut app = Self {
+            workspace: Workspace::Library,
             items: Vec::new(),
             selected: 0,
             list_state: ListState::default(),
             query: String::new(),
             favorite_only: false,
             lifecycle: LifecycleFilter::Active,
+            documents: Vec::new(),
+            document_selected: 0,
+            document_list_state: ListState::default(),
+            document_query: String::new(),
+            document_lifecycle: LifecycleFilter::Active,
+            reader: None,
             status,
+            aggregates_pending: store.pending_aggregate_operation_count().await?,
             mode: Mode::Browse,
             notice: None,
             detail_scroll: 0,
@@ -275,6 +304,46 @@ impl App {
         self.selected = next_selected;
         self.sync_selection();
         self.status = status;
+        self.aggregates_pending = store.pending_aggregate_operation_count().await?;
+        self.refresh_documents(store, None).await
+    }
+
+    /// Reloads the workspace index. Metadata only: opening or refreshing the
+    /// workspace never reads a body.
+    async fn refresh_documents(
+        &mut self,
+        store: &V2Store,
+        preferred_id: Option<&str>,
+    ) -> TuiResult<()> {
+        let selected_id = preferred_id.map(str::to_owned).or_else(|| {
+            self.selected_document()
+                .map(|document| document.document_id.clone())
+        });
+        let mut documents = store
+            .list_zen_documents_with(ZenListQuery {
+                include_deleted: self.document_lifecycle != LifecycleFilter::Active,
+            })
+            .await?;
+        if self.document_lifecycle == LifecycleFilter::Deleted {
+            documents.retain(|document| document.lifecycle_state == LifecycleState::Deleted);
+        }
+        let needle = self.document_query.trim().to_lowercase();
+        if !needle.is_empty() {
+            documents.retain(|document| document_matches(document, &needle));
+        }
+        self.document_selected = selected_id
+            .as_ref()
+            .and_then(|id| {
+                documents
+                    .iter()
+                    .position(|document| document.document_id == *id)
+            })
+            .unwrap_or_else(|| {
+                self.document_selected
+                    .min(documents.len().saturating_sub(1))
+            });
+        self.documents = documents;
+        self.sync_document_selection();
         Ok(())
     }
 
@@ -291,23 +360,36 @@ impl App {
         }
         self.notice = None;
         if control_shortcut(key) && key.code == KeyCode::Char('g') {
-            self.edit_focused_text(terminal);
+            if matches!(self.mode, Mode::Reader) {
+                self.edit_document_body(store, terminal).await;
+            } else {
+                self.edit_focused_text(terminal);
+            }
             return;
         }
 
         match &mut self.mode {
             Mode::Browse => self.handle_browse_key(store, data_dir, key).await,
+            Mode::Reader => self.handle_reader_key(store, key).await,
             Mode::Search(input) => {
                 if key.code == KeyCode::Esc {
                     self.mode = Mode::Browse;
                     return;
                 }
                 if key.code == KeyCode::Enter && command_key(key) {
-                    let previous_query = std::mem::replace(&mut self.query, input.value());
+                    let value = input.value();
+                    let target = match self.workspace {
+                        Workspace::Library => &mut self.query,
+                        Workspace::Documents => &mut self.document_query,
+                    };
+                    let previous_query = std::mem::replace(target, value);
                     match self.refresh(store, None).await {
                         Ok(()) => self.mode = Mode::Browse,
                         Err(error) => {
-                            self.query = previous_query;
+                            match self.workspace {
+                                Workspace::Library => self.query = previous_query,
+                                Workspace::Documents => self.document_query = previous_query,
+                            }
                             self.notice_error(error);
                         }
                     }
@@ -326,6 +408,17 @@ impl App {
                 }
                 form.handle_key(key);
             }
+            Mode::DocumentForm(form) => {
+                if key.code == KeyCode::Esc {
+                    self.dismiss_overlay();
+                    return;
+                }
+                if control_shortcut(key) && key.code == KeyCode::Char('s') {
+                    self.submit_document_form(store).await;
+                    return;
+                }
+                form.handle_key(key);
+            }
             Mode::SyncSetup(form) => {
                 if key.code == KeyCode::Esc {
                     self.mode = Mode::Browse;
@@ -339,10 +432,13 @@ impl App {
             }
             Mode::ConfirmDelete => match key.code {
                 KeyCode::Enter | KeyCode::Char('y') if command_key(key) => {
-                    self.delete_selected(store).await;
+                    match self.workspace {
+                        Workspace::Library => self.delete_selected(store).await,
+                        Workspace::Documents => self.delete_selected_document(store).await,
+                    }
                 }
-                KeyCode::Char('n') if command_key(key) => self.mode = Mode::Browse,
-                KeyCode::Esc => self.mode = Mode::Browse,
+                KeyCode::Char('n') if command_key(key) => self.dismiss_overlay(),
+                KeyCode::Esc => self.dismiss_overlay(),
                 _ => {}
             },
             Mode::ConfirmForceEnrich(target) => match key.code {
@@ -360,10 +456,19 @@ impl App {
                     || command_key(key)
                         && matches!(key.code, KeyCode::Char('?') | KeyCode::Enter)
                 {
-                    self.mode = Mode::Browse;
+                    self.dismiss_overlay();
                 }
             }
         }
+    }
+
+    /// Closes an overlay onto whatever was underneath it.
+    fn dismiss_overlay(&mut self) {
+        self.mode = if self.workspace == Workspace::Documents && self.reader.is_some() {
+            Mode::Reader
+        } else {
+            Mode::Browse
+        };
     }
 
     fn accept_key_press(&mut self, key: KeyEvent) -> bool {
@@ -418,11 +523,23 @@ impl App {
         match &self.mode {
             Mode::Browse => {
                 control_shortcut(key) && key.code == KeyCode::Char('e')
-                    || key.code == KeyCode::Esc && !self.query.is_empty()
+                    || key.code == KeyCode::Esc && !self.active_query().is_empty()
                     || command_key(key)
                         && matches!(
                             key.code,
-                            KeyCode::Char('?' | '/' | 'a' | 'e' | 'E' | 's' | ' ' | 'x' | 'r')
+                            KeyCode::Char(
+                                '?' | '/' | 'a' | 'e' | 'E' | 's' | ' ' | 'x' | 'r' | 'o'
+                            ) | KeyCode::Enter
+                                | KeyCode::Tab
+                        )
+            }
+            Mode::Reader => {
+                key.code == KeyCode::Esc
+                    || control_shortcut(key) && key.code == KeyCode::Char('g')
+                    || command_key(key)
+                        && matches!(
+                            key.code,
+                            KeyCode::Char('q' | 'e' | ' ' | 't' | 'x' | 'r' | '?' | 's')
                                 | KeyCode::Enter
                         )
             }
@@ -435,6 +552,10 @@ impl App {
                     || form.active >= form.fields.len()
                         && key.code == KeyCode::Char(' ')
                         && command_key(key)
+            }
+            Mode::DocumentForm(_) => {
+                key.code == KeyCode::Esc
+                    || control_shortcut(key) && key.code == KeyCode::Char('s')
             }
             Mode::SyncSetup(_) => {
                 key.code == KeyCode::Esc
@@ -462,10 +583,10 @@ impl App {
         self.notice = None;
         match &mut self.mode {
             Mode::Browse => match key.code {
-                KeyCode::Down | KeyCode::Char('j') if command_key(key) => self.select_next(1),
-                KeyCode::Up | KeyCode::Char('k') if command_key(key) => self.select_previous(1),
-                KeyCode::PageDown if command_key(key) => self.select_next(10),
-                KeyCode::PageUp if command_key(key) => self.select_previous(10),
+                KeyCode::Down | KeyCode::Char('j') if command_key(key) => self.move_down(1),
+                KeyCode::Up | KeyCode::Char('k') if command_key(key) => self.move_up(1),
+                KeyCode::PageDown if command_key(key) => self.move_down(10),
+                KeyCode::PageUp if command_key(key) => self.move_up(10),
                 KeyCode::Char('d') if control_shortcut(key) => {
                     self.detail_scroll = self.detail_scroll.saturating_add(5);
                 }
@@ -474,8 +595,10 @@ impl App {
                 }
                 _ => {}
             },
+            Mode::Reader => self.move_reader(key),
             Mode::Search(_)
             | Mode::Form(_)
+            | Mode::DocumentForm(_)
             | Mode::SyncSetup(_)
             | Mode::ConfirmDelete
             | Mode::ConfirmForceEnrich(_)
@@ -484,6 +607,40 @@ impl App {
     }
 
     async fn handle_browse_key(&mut self, store: &V2Store, data_dir: &Path, key: KeyEvent) {
+        if key.code == KeyCode::Tab && command_key(key) {
+            self.workspace = self.workspace.other();
+            self.detail_scroll = 0;
+            let _ = self.refresh_or_notice(store, None).await;
+            return;
+        }
+        match self.workspace {
+            Workspace::Library => self.handle_library_key(store, data_dir, key).await,
+            Workspace::Documents => self.handle_documents_key(store, data_dir, key).await,
+        }
+    }
+
+    fn active_query(&self) -> &str {
+        match self.workspace {
+            Workspace::Library => &self.query,
+            Workspace::Documents => &self.document_query,
+        }
+    }
+
+    fn move_down(&mut self, amount: usize) {
+        match self.workspace {
+            Workspace::Library => self.select_next(amount),
+            Workspace::Documents => self.select_next_document(amount),
+        }
+    }
+
+    fn move_up(&mut self, amount: usize) {
+        match self.workspace {
+            Workspace::Library => self.select_previous(amount),
+            Workspace::Documents => self.select_previous_document(amount),
+        }
+    }
+
+    async fn handle_library_key(&mut self, store: &V2Store, data_dir: &Path, key: KeyEvent) {
         if self.operation_blocks_mutations()
             && (command_key(key)
                 && matches!(
@@ -598,6 +755,7 @@ impl App {
         match &mut self.mode {
             Mode::Search(input) => input.insert_text(&single_line(&text)),
             Mode::Form(form) => form.insert_text(text),
+            Mode::DocumentForm(form) => form.insert_text(text),
             Mode::SyncSetup(form) => form.insert_text(text),
             _ => {}
         }
@@ -610,11 +768,16 @@ impl App {
                 let field = &mut form.fields[form.active];
                 edit_text_input(terminal, &mut field.input, field.multiline)
             }
+            Mode::DocumentForm(form) => {
+                let field = &mut form.fields[form.active];
+                edit_text_input(terminal, &mut field.input, field.multiline)
+            }
             Mode::SyncSetup(form) => {
                 edit_text_input(terminal, &mut form.fields[form.active].input, false)
             }
             Mode::Browse
             | Mode::Form(_)
+            | Mode::Reader
             | Mode::ConfirmDelete
             | Mode::ConfirmForceEnrich(_)
             | Mode::Help => return,
@@ -938,6 +1101,402 @@ impl App {
         }
     }
 
+    /// Keys for the documents workspace.
+    ///
+    /// It intentionally reads like the library: the same navigation, the same
+    /// lifecycle keys, the same search key. Only what a document actually has
+    /// differs — Enter reads it rather than editing it, and there is no
+    /// favorite, enrichment, or URL.
+    async fn handle_documents_key(&mut self, store: &V2Store, data_dir: &Path, key: KeyEvent) {
+        if self.operation_blocks_mutations()
+            && command_key(key)
+            && matches!(key.code, KeyCode::Char('a' | 'e' | 'x' | 'r'))
+        {
+            self.notice = Some(Notice::info(
+                "Wait for the initial sync connection to finish before changing this library",
+            ));
+            return;
+        }
+        match key.code {
+            KeyCode::Char('q') if command_key(key) => self.should_quit = true,
+            KeyCode::Char('?') if command_key(key) => self.mode = Mode::Help,
+            KeyCode::Down | KeyCode::Char('j') if command_key(key) => {
+                self.select_next_document(1);
+            }
+            KeyCode::Up | KeyCode::Char('k') if command_key(key) => {
+                self.select_previous_document(1);
+            }
+            KeyCode::PageDown if command_key(key) => self.select_next_document(10),
+            KeyCode::PageUp if command_key(key) => self.select_previous_document(10),
+            KeyCode::Home | KeyCode::Char('g') if command_key(key) => {
+                self.select_first_document();
+            }
+            KeyCode::End | KeyCode::Char('G') if command_key(key) => {
+                self.select_last_document();
+            }
+            KeyCode::Char('d') if control_shortcut(key) => {
+                self.detail_scroll = self.detail_scroll.saturating_add(5);
+            }
+            KeyCode::Char('u') if control_shortcut(key) => {
+                self.detail_scroll = self.detail_scroll.saturating_sub(5);
+            }
+            KeyCode::Char('/') if command_key(key) => {
+                self.mode = Mode::Search(TextInput::new(self.document_query.clone()));
+            }
+            KeyCode::Esc if !self.document_query.is_empty() => {
+                let previous_query = self.document_query.clone();
+                self.document_query.clear();
+                if !self.refresh_or_notice(store, None).await {
+                    self.document_query = previous_query;
+                }
+            }
+            KeyCode::Char('d') if command_key(key) => {
+                let previous = self.document_lifecycle;
+                self.document_lifecycle = self.document_lifecycle.next();
+                if !self.refresh_or_notice(store, None).await {
+                    self.document_lifecycle = previous;
+                }
+            }
+            KeyCode::Char('R') if command_key(key) => {
+                let _ = self.refresh_or_notice(store, None).await;
+            }
+            KeyCode::Char('o') | KeyCode::Enter if command_key(key) => {
+                self.open_selected_document(store).await;
+            }
+            KeyCode::Char('a') if command_key(key) => {
+                self.mode = Mode::DocumentForm(Box::new(DocumentForm::create()));
+            }
+            KeyCode::Char('e') if command_key(key) => {
+                self.edit_selected_document(store).await;
+            }
+            KeyCode::Char('s') if command_key(key) => {
+                if self.operation.is_some() {
+                    self.notice =
+                        Some(Notice::info("Another network operation is still running"));
+                } else if self.status.sync_remote.is_some() {
+                    self.synchronize(data_dir);
+                } else {
+                    self.mode = Mode::SyncSetup(SyncForm::new());
+                }
+            }
+            KeyCode::Char('x') if command_key(key) => {
+                if self
+                    .selected_document()
+                    .is_some_and(|document| document.lifecycle_state == LifecycleState::Active)
+                {
+                    self.mode = Mode::ConfirmDelete;
+                }
+            }
+            KeyCode::Char('r') if command_key(key) => {
+                self.restore_selected_document(store).await
+            }
+            _ => {}
+        }
+    }
+
+    /// Keys for the open document.
+    async fn handle_reader_key(&mut self, store: &V2Store, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') if command_key(key) => {
+                self.reader = None;
+                self.mode = Mode::Browse;
+            }
+            KeyCode::Char('?') if command_key(key) => self.mode = Mode::Help,
+            KeyCode::Char('e') | KeyCode::Enter if command_key(key) => {
+                self.edit_open_document();
+            }
+            KeyCode::Char(' ' | 't') if command_key(key) => {
+                self.toggle_open_todo(store).await;
+            }
+            KeyCode::Char('x') if command_key(key) => {
+                if self.reader.as_ref().is_some_and(|reader| !reader.deleted) {
+                    self.mode = Mode::ConfirmDelete;
+                }
+            }
+            KeyCode::Char('r') if command_key(key) => {
+                self.restore_selected_document(store).await;
+            }
+            KeyCode::Char('R') if command_key(key) => self.reload_reader(store).await,
+            _ => self.move_reader(key),
+        }
+    }
+
+    /// Cursor movement in the reader. The visible window follows at render
+    /// time, so movement stays independent of how the body happens to wrap.
+    fn move_reader(&mut self, key: KeyEvent) {
+        let Some(reader) = &mut self.reader else {
+            return;
+        };
+        match key.code {
+            KeyCode::Down | KeyCode::Char('j') if command_key(key) => reader.move_cursor(1),
+            KeyCode::Up | KeyCode::Char('k') if command_key(key) => reader.move_cursor(-1),
+            KeyCode::PageDown if command_key(key) => reader.move_cursor(15),
+            KeyCode::PageUp if command_key(key) => reader.move_cursor(-15),
+            KeyCode::Char('d') if control_shortcut(key) => reader.move_cursor(10),
+            KeyCode::Char('u') if control_shortcut(key) => reader.move_cursor(-10),
+            KeyCode::Home | KeyCode::Char('g') if command_key(key) => reader.cursor = 0,
+            KeyCode::End | KeyCode::Char('G') if command_key(key) => reader.cursor_to_last(),
+            _ => {}
+        }
+    }
+
+    /// Opens the selected document. This is the only path that reads a body.
+    async fn open_selected_document(&mut self, store: &V2Store) {
+        let Some(document_id) = self
+            .selected_document()
+            .map(|document| document.document_id.clone())
+        else {
+            return;
+        };
+        match load_reader(store, &document_id).await {
+            Ok(reader) => {
+                self.reader = Some(reader);
+                self.mode = Mode::Reader;
+            }
+            Err(error) => self.notice_error(error),
+        }
+    }
+
+    async fn reload_reader(&mut self, store: &V2Store) {
+        let Some(document_id) = self
+            .reader
+            .as_ref()
+            .map(|reader| reader.document_id.clone())
+        else {
+            return;
+        };
+        match load_reader(store, &document_id).await {
+            Ok(mut reader) => {
+                if let Some(previous) = &self.reader {
+                    reader.cursor = previous.cursor.min(reader.line_count().saturating_sub(1));
+                }
+                self.reader = Some(reader);
+                self.notice = Some(Notice::info("Reloaded document"));
+            }
+            Err(error) => self.notice_error(error),
+        }
+    }
+
+    /// Opens the edit form for the selected document, loading its body.
+    async fn edit_selected_document(&mut self, store: &V2Store) {
+        let Some(document_id) = self
+            .selected_document()
+            .map(|document| document.document_id.clone())
+        else {
+            return;
+        };
+        match store.zen_document(&document_id).await {
+            Ok(view) => {
+                self.mode = Mode::DocumentForm(Box::new(DocumentForm::edit(&view)));
+            }
+            Err(error) => self.notice_error(error),
+        }
+    }
+
+    /// Opens the edit form over the reader, reusing the body already in hand.
+    fn edit_open_document(&mut self) {
+        let Some(reader) = &self.reader else {
+            return;
+        };
+        self.mode = Mode::DocumentForm(Box::new(DocumentForm::from_reader(reader)));
+    }
+
+    async fn submit_document_form(&mut self, store: &V2Store) {
+        let Mode::DocumentForm(form) = &self.mode else {
+            return;
+        };
+        let submission = match form.submission() {
+            Ok(submission) => submission,
+            Err(error) => {
+                self.notice_error(error);
+                return;
+            }
+        };
+        match submission {
+            DocumentSubmission::Create(request) => {
+                match store.create_zen_document(request).await {
+                    Ok(summary) => {
+                        let document_id = summary.document_id.clone();
+                        self.mode = Mode::Browse;
+                        self.reader = None;
+                        self.notice = Some(Notice::info("Created document"));
+                        let _ = self.refresh_or_notice(store, None).await;
+                        let _ = self.refresh_documents(store, Some(&document_id)).await;
+                    }
+                    Err(error) => self.notice_error(error),
+                }
+            }
+            DocumentSubmission::Edit(request) => {
+                let document_id = request.document_id.clone();
+                match store.edit_zen_document(request).await {
+                    Ok(_) => {
+                        if self.reader.is_some() {
+                            self.reload_reader(store).await;
+                        }
+                        self.notice = Some(Notice::info("Saved document"));
+                        self.dismiss_overlay();
+                        let _ = self.refresh_or_notice(store, None).await;
+                        let _ = self.refresh_documents(store, Some(&document_id)).await;
+                    }
+                    Err(StoreError::NoChanges) => {
+                        self.dismiss_overlay();
+                        self.notice = Some(Notice::info("No changes to save"));
+                    }
+                    Err(StoreError::StaleEdit) => self.notice_error(
+                        "This document changed elsewhere; press Esc and reopen it before saving",
+                    ),
+                    Err(error) => self.notice_error(error),
+                }
+            }
+        }
+    }
+
+    /// Toggles the checkbox on the cursor line.
+    ///
+    /// The store splices only the character that changed, so two devices can
+    /// tick different boxes in the same document and keep both.
+    async fn toggle_open_todo(&mut self, store: &V2Store) {
+        if self.operation_blocks_mutations() {
+            self.notice = Some(Notice::info(
+                "Wait for the initial sync connection to finish before changing this library",
+            ));
+            return;
+        }
+        let Some(reader) = &self.reader else {
+            return;
+        };
+        if reader.deleted {
+            self.notice = Some(Notice::info("Restore the document before editing it"));
+            return;
+        }
+        let Some(body) = reader.toggled_body() else {
+            self.notice = Some(Notice::info("No task list item on this line"));
+            return;
+        };
+        self.write_open_body(store, body, "Toggled task").await;
+    }
+
+    /// Opens the whole body in the configured editor and saves what comes back.
+    async fn edit_document_body(&mut self, store: &V2Store, terminal: &mut TerminalSession) {
+        let Some(reader) = &self.reader else {
+            return;
+        };
+        if reader.deleted {
+            self.notice = Some(Notice::info("Restore the document before editing it"));
+            return;
+        }
+        let mut input = TextInput::new(reader.body().to_owned());
+        if let Err(error) = edit_text_input(terminal, &mut input, true) {
+            self.notice_error(error);
+            return;
+        }
+        let body = input.value();
+        if self
+            .reader
+            .as_ref()
+            .is_some_and(|reader| reader.body() == body)
+        {
+            self.notice = Some(Notice::info("No changes to save"));
+            return;
+        }
+        self.write_open_body(store, body, "Saved document").await;
+    }
+
+    /// Writes a new body for the open document, refusing a stale replacement.
+    async fn write_open_body(&mut self, store: &V2Store, body: String, action: &'static str) {
+        let Some(reader) = &self.reader else {
+            return;
+        };
+        let document_id = reader.document_id.clone();
+        let result = store
+            .edit_zen_document(EditZenDocumentRequest {
+                document_id: document_id.clone(),
+                body: Some(body.clone()),
+                expected_body: Some(reader.body().to_owned()),
+                ..EditZenDocumentRequest::default()
+            })
+            .await;
+        match result {
+            Ok(_) => {
+                let mentions = resolve_mentions(store, &body).await;
+                if let Some(reader) = &mut self.reader {
+                    reader.set_body(body);
+                    reader.set_mentions(mentions);
+                }
+                self.notice = Some(Notice::info(action));
+                let _ = self.refresh_or_notice(store, None).await;
+                let _ = self.refresh_documents(store, Some(&document_id)).await;
+            }
+            Err(StoreError::NoChanges) => {
+                self.notice = Some(Notice::info("No changes to save"));
+            }
+            // The buffer is the only copy of that work, so it is kept on disk
+            // rather than discarded with the error.
+            Err(StoreError::StaleEdit) => match rescue_body(&body) {
+                Ok(path) => self.notice_error(format!(
+                    "This document changed elsewhere; your version is saved at {}",
+                    path.display()
+                )),
+                Err(error) => self.notice_error(format!(
+                    "This document changed elsewhere and the rejected text could not be saved: {error}"
+                )),
+            },
+            Err(error) => self.notice_error(error),
+        }
+    }
+
+    async fn delete_selected_document(&mut self, store: &V2Store) {
+        let Some(document_id) = self
+            .reader
+            .as_ref()
+            .map(|reader| reader.document_id.clone())
+            .or_else(|| {
+                self.selected_document()
+                    .map(|document| document.document_id.clone())
+            })
+        else {
+            self.mode = Mode::Browse;
+            return;
+        };
+        match store.delete_zen_document(&document_id).await {
+            Ok(_) => {
+                self.reader = None;
+                self.mode = Mode::Browse;
+                self.notice = Some(Notice::info("Moved document to deleted"));
+                let _ = self.refresh_or_notice(store, None).await;
+            }
+            Err(error) => self.notice_error(error),
+        }
+    }
+
+    async fn restore_selected_document(&mut self, store: &V2Store) {
+        let Some(document_id) = self
+            .reader
+            .as_ref()
+            .filter(|reader| reader.deleted)
+            .map(|reader| reader.document_id.clone())
+            .or_else(|| {
+                self.selected_document()
+                    .filter(|document| document.lifecycle_state == LifecycleState::Deleted)
+                    .map(|document| document.document_id.clone())
+            })
+        else {
+            self.notice = Some(Notice::info("Selected document is already active"));
+            return;
+        };
+        match store.restore_zen_document(&document_id).await {
+            Ok(_) => {
+                self.notice = Some(Notice::info("Restored document"));
+                if self.reader.is_some() {
+                    self.reload_reader(store).await;
+                }
+                let _ = self.refresh_or_notice(store, None).await;
+                let _ = self.refresh_documents(store, Some(&document_id)).await;
+            }
+            Err(error) => self.notice_error(error),
+        }
+    }
+
     async fn refresh_or_notice(&mut self, store: &V2Store, preferred_id: Option<&str>) -> bool {
         match self.refresh(store, preferred_id).await {
             Ok(()) => true,
@@ -954,6 +1513,44 @@ impl App {
 
     fn selected_item(&self) -> Option<&StoredItem> {
         self.items.get(self.selected)
+    }
+
+    fn selected_document(&self) -> Option<&ZenDocumentSummary> {
+        self.documents.get(self.document_selected)
+    }
+
+    fn sync_document_selection(&mut self) {
+        self.document_list_state
+            .select((!self.documents.is_empty()).then_some(self.document_selected));
+    }
+
+    fn select_next_document(&mut self, amount: usize) {
+        if !self.documents.is_empty() {
+            self.document_selected = self
+                .document_selected
+                .saturating_add(amount)
+                .min(self.documents.len() - 1);
+            self.detail_scroll = 0;
+            self.sync_document_selection();
+        }
+    }
+
+    fn select_first_document(&mut self) {
+        self.document_selected = 0;
+        self.detail_scroll = 0;
+        self.sync_document_selection();
+    }
+
+    fn select_last_document(&mut self) {
+        self.document_selected = self.documents.len().saturating_sub(1);
+        self.detail_scroll = 0;
+        self.sync_document_selection();
+    }
+
+    fn select_previous_document(&mut self, amount: usize) {
+        self.document_selected = self.document_selected.saturating_sub(amount);
+        self.detail_scroll = 0;
+        self.sync_document_selection();
     }
 
     fn select_next(&mut self, amount: usize) {
@@ -988,6 +1585,43 @@ impl App {
     }
 }
 
+/// The two things a library holds: saved URLs, and authored documents.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Workspace {
+    Library,
+    Documents,
+}
+
+impl Workspace {
+    fn other(self) -> Self {
+        match self {
+            Self::Library => Self::Documents,
+            Self::Documents => Self::Library,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            Self::Library => "saves",
+            Self::Documents => "documents",
+        }
+    }
+}
+
+/// Case-insensitive match over the metadata the index already holds.
+///
+/// Bodies are deliberately absent: filtering must not be a reason to read one.
+fn document_matches(document: &ZenDocumentSummary, needle: &str) -> bool {
+    document
+        .title
+        .as_deref()
+        .is_some_and(|title| title.to_lowercase().contains(needle))
+        || document
+            .tags
+            .iter()
+            .any(|tag| tag.to_lowercase().contains(needle))
+}
+
 #[derive(Clone, Copy, Eq, PartialEq)]
 enum LifecycleFilter {
     Active,
@@ -1017,6 +1651,11 @@ enum Mode {
     Browse,
     Search(TextInput),
     Form(Box<ItemForm>),
+    /// Title, body, and tags of one document. The body is a buffer, so every
+    /// save carries the text it started from.
+    DocumentForm(Box<DocumentForm>),
+    /// Reading the open document. The body lives in `App::reader`.
+    Reader,
     SyncSetup(SyncForm),
     ConfirmDelete,
     ConfirmForceEnrich(ForceEnrichmentConfirmation),
@@ -1029,6 +1668,8 @@ impl Mode {
             Self::Browse => ModeKind::Browse,
             Self::Search(_) => ModeKind::Search,
             Self::Form(_) => ModeKind::Form,
+            Self::DocumentForm(_) => ModeKind::DocumentForm,
+            Self::Reader => ModeKind::Reader,
             Self::SyncSetup(_) => ModeKind::SyncSetup,
             Self::ConfirmDelete => ModeKind::ConfirmDelete,
             Self::ConfirmForceEnrich(_) => ModeKind::ConfirmForceEnrich,
@@ -1042,6 +1683,8 @@ enum ModeKind {
     Browse,
     Search,
     Form,
+    DocumentForm,
+    Reader,
     SyncSetup,
     ConfirmDelete,
     ConfirmForceEnrich,
@@ -1138,31 +1781,6 @@ impl ItemForm {
 
     fn handle_key(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Tab | KeyCode::Enter if command_key(key) => {
-                self.active = (self.active + 1) % self.focusable_count();
-            }
-            KeyCode::BackTab if command_key(key) => {
-                self.active = self
-                    .active
-                    .checked_sub(1)
-                    .unwrap_or_else(|| self.focusable_count() - 1);
-            }
-            KeyCode::Down | KeyCode::Up
-                if command_key(key)
-                    && self.active < self.fields.len()
-                    && self.fields[self.active].multiline =>
-            {
-                self.fields[self.active].input.handle_key(key, true);
-            }
-            KeyCode::Down if command_key(key) => {
-                self.active = (self.active + 1) % self.focusable_count();
-            }
-            KeyCode::Up if command_key(key) => {
-                self.active = self
-                    .active
-                    .checked_sub(1)
-                    .unwrap_or_else(|| self.focusable_count() - 1);
-            }
             KeyCode::Char(' ') if self.active == self.fields.len() && command_key(key) => {
                 self.favorite = !self.favorite;
             }
@@ -1173,18 +1791,10 @@ impl ItemForm {
             {
                 self.enrich = !self.enrich;
             }
-            KeyCode::Char('j' | 'n')
-                if control_shortcut(key)
-                    && self.active < self.fields.len()
-                    && self.fields[self.active].multiline =>
-            {
-                self.fields[self.active].input.insert_char('\n');
+            _ => {
+                let focusable = self.focusable_count();
+                handle_form_field_key(&mut self.fields, &mut self.active, focusable, key);
             }
-            _ if self.active < self.fields.len() => {
-                let multiline = self.fields[self.active].multiline;
-                self.fields[self.active].input.handle_key(key, multiline);
-            }
-            _ => {}
         }
     }
 
@@ -1257,6 +1867,212 @@ enum FormSubmission {
         enrich: bool,
     },
     Edit(EditItemRequest),
+}
+
+/// Title, body, and tags of one document.
+struct DocumentForm {
+    fields: Vec<FormField>,
+    active: usize,
+    original: Option<DocumentOriginal>,
+}
+
+/// What an edit form opened with, so a save can send exactly that back as its
+/// precondition instead of trusting the buffer.
+struct DocumentOriginal {
+    document_id: String,
+    title: Option<String>,
+    body: String,
+    tags: Vec<String>,
+}
+
+impl DocumentForm {
+    fn create() -> Self {
+        Self {
+            fields: vec![
+                FormField::new("Title", "", false),
+                FormField::new("Body (Markdown, task lists, mentions)", "", true),
+                FormField::new("Tags (comma list or JSON)", "", false),
+            ],
+            active: 0,
+            original: None,
+        }
+    }
+
+    fn edit(view: &research_domain::ZenDocumentView) -> Self {
+        Self::from_parts(
+            &view.document_id,
+            view.title.value.as_deref(),
+            &view.body,
+            &view.tags,
+        )
+    }
+
+    fn from_reader(reader: &Reader) -> Self {
+        Self::from_parts(
+            &reader.document_id,
+            reader.title.as_deref(),
+            reader.body(),
+            &reader.tags,
+        )
+    }
+
+    fn from_parts(document_id: &str, title: Option<&str>, body: &str, tags: &[String]) -> Self {
+        Self {
+            fields: vec![
+                FormField::new("Title", title.unwrap_or_default(), false),
+                FormField::new("Body (Markdown, task lists, mentions)", body, true),
+                FormField::new("Tags (comma list or JSON)", &format_tags(tags), false),
+            ],
+            active: 0,
+            original: Some(DocumentOriginal {
+                document_id: document_id.to_owned(),
+                title: title.map(str::to_owned),
+                body: body.to_owned(),
+                tags: tags.to_vec(),
+            }),
+        }
+    }
+
+    fn title(&self) -> &'static str {
+        if self.original.is_some() {
+            "Edit document"
+        } else {
+            "New document"
+        }
+    }
+
+    fn body_bytes(&self) -> usize {
+        self.fields[1].input.value().len()
+    }
+
+    fn handle_key(&mut self, key: KeyEvent) {
+        let focusable = self.fields.len();
+        handle_form_field_key(&mut self.fields, &mut self.active, focusable, key);
+    }
+
+    fn insert_text(&mut self, text: String) {
+        let value = if self.fields[self.active].multiline {
+            text.replace("\r\n", "\n").replace('\r', "\n")
+        } else {
+            single_line(&text)
+        };
+        self.fields[self.active].input.insert_text(&value);
+    }
+
+    fn submission(&self) -> Result<DocumentSubmission, String> {
+        let title = self.fields[0].input.value().trim().to_owned();
+        let body = self.fields[1].input.value();
+        let tags = parse_tags(&self.fields[2].input.value())?;
+        if body.len() > MAX_ZEN_BODY_BYTES {
+            return Err(format!(
+                "the body is {} and the limit is {}",
+                format_bytes(body.len()),
+                format_bytes(MAX_ZEN_BODY_BYTES)
+            ));
+        }
+
+        let Some(original) = &self.original else {
+            return Ok(DocumentSubmission::Create(CreateZenDocumentRequest {
+                title: nonempty(title),
+                body,
+                tags,
+            }));
+        };
+
+        let old_tags = original.tags.iter().cloned().collect::<BTreeSet<_>>();
+        let new_tags = tags.into_iter().collect::<BTreeSet<_>>();
+        let title_changed = nonempty(title.clone()) != original.title;
+        let body_changed = body != original.body;
+        Ok(DocumentSubmission::Edit(EditZenDocumentRequest {
+            document_id: original.document_id.clone(),
+            title: title_changed.then(|| nonempty(title)),
+            body: body_changed.then_some(body),
+            expected_body: body_changed.then(|| original.body.clone()),
+            add_tags: new_tags.difference(&old_tags).cloned().collect(),
+            remove_tags: old_tags.difference(&new_tags).cloned().collect(),
+        }))
+    }
+}
+
+enum DocumentSubmission {
+    Create(CreateZenDocumentRequest),
+    Edit(EditZenDocumentRequest),
+}
+
+/// Field navigation and text entry shared by every form.
+fn handle_form_field_key(
+    fields: &mut [FormField],
+    active: &mut usize,
+    focusable: usize,
+    key: KeyEvent,
+) {
+    match key.code {
+        KeyCode::Tab | KeyCode::Enter if command_key(key) => {
+            *active = (*active + 1) % focusable;
+        }
+        KeyCode::BackTab if command_key(key) => {
+            *active = active.checked_sub(1).unwrap_or(focusable - 1);
+        }
+        KeyCode::Down | KeyCode::Up
+            if command_key(key) && *active < fields.len() && fields[*active].multiline =>
+        {
+            fields[*active].input.handle_key(key, true);
+        }
+        KeyCode::Down if command_key(key) => *active = (*active + 1) % focusable,
+        KeyCode::Up if command_key(key) => {
+            *active = active.checked_sub(1).unwrap_or(focusable - 1);
+        }
+        KeyCode::Char('j' | 'n')
+            if control_shortcut(key) && *active < fields.len() && fields[*active].multiline =>
+        {
+            fields[*active].input.insert_char('\n');
+        }
+        _ if *active < fields.len() => {
+            let multiline = fields[*active].multiline;
+            fields[*active].input.handle_key(key, multiline);
+        }
+        _ => {}
+    }
+}
+
+/// Reads one document and resolves the mentions its body makes.
+async fn load_reader(store: &V2Store, document_id: &str) -> TuiResult<Reader> {
+    let view = store.zen_document(document_id).await?;
+    let mentions = resolve_mentions(store, &view.body).await;
+    Ok(Reader::new(view, mentions))
+}
+
+/// Resolves `research:item/<uuid>` mentions against the local projection.
+///
+/// Nothing here is written back: the map is derived at view time and discarded
+/// with the reader, which is what keeps mentions one-way references.
+async fn resolve_mentions(store: &V2Store, body: &str) -> Mentions {
+    let mut mentions = Mentions::new();
+    for item_id in mention_ids(body) {
+        let target = match store.item(&item_id).await {
+            Ok(item) if item.state == "deleted" => MentionTarget::Deleted { title: item.title },
+            Ok(item) => MentionTarget::Active {
+                title: item.title,
+                url: item.url,
+            },
+            Err(_) => MentionTarget::Unresolved,
+        };
+        mentions.insert(item_id, target);
+    }
+    mentions
+}
+
+/// Keeps a rejected body where its author can find it again.
+fn rescue_body(body: &str) -> io::Result<std::path::PathBuf> {
+    let mut file = tempfile::Builder::new()
+        .prefix("researchpocket-rejected-")
+        .suffix(".md")
+        .tempfile()?;
+    file.write_all(body.as_bytes())?;
+    file.flush()?;
+    file.into_temp_path()
+        .keep()
+        .map_err(|error| io::Error::other(error.to_string()))
 }
 
 struct SyncForm {
@@ -1634,32 +2450,61 @@ fn render(frame: &mut Frame<'_>, app: &mut App) {
 
     match &app.mode {
         Mode::Form(form) => render_form(frame, area, form, app.notice.as_ref()),
+        Mode::DocumentForm(form) => {
+            render_document_form(frame, area, form, app.notice.as_ref());
+        }
         Mode::SyncSetup(form) => render_sync_setup(frame, area, form, app.notice.as_ref()),
-        Mode::ConfirmDelete => render_confirmation(frame, area, app.selected_item()),
+        Mode::ConfirmDelete => {
+            let (kind, name) = match app.workspace {
+                Workspace::Library => (
+                    "save",
+                    app.selected_item()
+                        .and_then(|item| item.title.as_deref())
+                        .filter(|title| !title.is_empty()),
+                ),
+                Workspace::Documents => (
+                    "document",
+                    app.reader
+                        .as_ref()
+                        .map_or_else(
+                            || app.selected_document().and_then(|d| d.title.as_deref()),
+                            |reader| reader.title.as_deref(),
+                        )
+                        .filter(|title| !title.is_empty()),
+                ),
+            };
+            render_confirmation(frame, area, kind, name);
+        }
         Mode::ConfirmForceEnrich(target) => {
             render_force_enrichment_confirmation(frame, area, target);
         }
-        Mode::Help => render_help(frame, area),
-        Mode::Browse | Mode::Search(_) => {}
+        Mode::Help => render_help(frame, area, app.workspace),
+        Mode::Browse | Mode::Reader | Mode::Search(_) => {}
     }
 }
 
 fn render_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let search = if app.query.is_empty() {
+    let query = app.active_query();
+    let search = if query.is_empty() {
         "no search".to_owned()
     } else {
-        format!("search: {}", terminal_safe(&app.query))
+        format!("search: {}", terminal_safe(query))
     };
-    let filter = format!(
-        "{} | {}{}",
-        search,
-        app.lifecycle.label(),
-        if app.favorite_only {
-            " | favorites"
-        } else {
-            ""
+    let filter = match app.workspace {
+        Workspace::Library => format!(
+            "{} | {}{}",
+            search,
+            app.lifecycle.label(),
+            if app.favorite_only {
+                " | favorites"
+            } else {
+                ""
+            }
+        ),
+        Workspace::Documents => {
+            format!("{} | {}", search, app.document_lifecycle.label())
         }
-    );
+    };
     let title = Line::from(vec![
         Span::styled(
             "ResearchPocket",
@@ -1668,6 +2513,17 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 .add_modifier(Modifier::BOLD),
         ),
         Span::raw("  "),
+        Span::styled(
+            app.workspace.label(),
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            format!(" Tab: {} ", app.workspace.other().label()),
+            Style::default().fg(Color::DarkGray),
+        ),
         Span::styled(filter, Style::default().fg(Color::DarkGray)),
     ]);
     frame.render_widget(
@@ -1679,21 +2535,240 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
 }
 
 fn render_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
-    if area.width < MIN_COMFORTABLE_WIDTH || area.height < MIN_COMFORTABLE_HEIGHT {
-        let parts = Layout::default()
+    // An open document takes the whole body: prose deserves the width, and the
+    // index it came from has nothing to add while it is being read.
+    if matches!(app.mode, Mode::Reader)
+        && let Some(reader) = &mut app.reader
+    {
+        render_reader(frame, area, reader);
+        return;
+    }
+    let parts = if area.width < MIN_COMFORTABLE_WIDTH || area.height < MIN_COMFORTABLE_HEIGHT {
+        Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
-            .split(area);
-        render_list(frame, parts[0], app);
-        render_detail(frame, parts[1], app.selected_item(), app.detail_scroll);
+            .split(area)
     } else {
-        let parts = Layout::default()
+        Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(44), Constraint::Percentage(56)])
-            .split(area);
-        render_list(frame, parts[0], app);
-        render_detail(frame, parts[1], app.selected_item(), app.detail_scroll);
+            .split(area)
+    };
+    match app.workspace {
+        Workspace::Library => {
+            render_list(frame, parts[0], app);
+            render_detail(frame, parts[1], app.selected_item(), app.detail_scroll);
+        }
+        Workspace::Documents => {
+            render_document_list(frame, parts[0], app);
+            render_document_detail(frame, parts[1], app.selected_document(), app.detail_scroll);
+        }
     }
+}
+
+fn render_document_list(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
+    let items = app
+        .documents
+        .iter()
+        .map(|document| {
+            let title = document
+                .title
+                .as_deref()
+                .filter(|title| !title.is_empty())
+                .unwrap_or("Untitled document");
+            let state = if document.lifecycle_state == LifecycleState::Deleted {
+                " [deleted]"
+            } else {
+                ""
+            };
+            let mut meta = vec![format_bytes(document.byte_length)];
+            if document.todo_total > 0 {
+                meta.push(format!(
+                    "{}/{} done",
+                    document.todo_done, document.todo_total
+                ));
+            }
+            if !document.tags.is_empty() {
+                meta.push(document.tags.join(", "));
+            }
+            ListItem::new(vec![
+                Line::from(format!("  {}{state}", terminal_safe(title))),
+                Line::from(Span::styled(
+                    format!("  {}", terminal_safe(&meta.join(" | "))),
+                    Style::default().fg(Color::DarkGray),
+                )),
+            ])
+        })
+        .collect::<Vec<_>>();
+    let list = List::new(items)
+        .block(
+            Block::default()
+                .title(format!(" Documents ({}) ", app.documents.len()))
+                .borders(Borders::ALL),
+        )
+        .highlight_symbol("> ")
+        .highlight_style(
+            Style::default()
+                .fg(Color::Black)
+                .bg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
+    frame.render_stateful_widget(list, area, &mut app.document_list_state);
+}
+
+/// The index detail pane. Metadata only: a body is read when a document is
+/// opened, never to fill a preview.
+fn render_document_detail(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    document: Option<&ZenDocumentSummary>,
+    scroll: u16,
+) {
+    let text = document.map_or_else(
+        || Text::from("No documents match the current view. Press a to write one."),
+        |document| {
+            let mut lines = vec![
+                detail_line(
+                    "Title",
+                    document.title.as_deref().unwrap_or("Untitled document"),
+                ),
+                detail_line("Created", format_timestamp(document.created_at)),
+                detail_line(
+                    "State",
+                    match document.lifecycle_state {
+                        LifecycleState::Active => "active",
+                        LifecycleState::Deleted => "deleted",
+                    },
+                ),
+                detail_line("Size", format_bytes(document.byte_length)),
+                detail_line(
+                    "Tasks",
+                    if document.todo_total == 0 {
+                        "-".to_owned()
+                    } else {
+                        format!("{} of {} done", document.todo_done, document.todo_total)
+                    },
+                ),
+                detail_line(
+                    "Tags",
+                    if document.tags.is_empty() {
+                        "-".to_owned()
+                    } else {
+                        document.tags.join(", ")
+                    },
+                ),
+                Line::default(),
+                detail_line("ID", &document.document_id),
+                Line::default(),
+                Line::styled(
+                    "Enter reads it | e edits it | x deletes it",
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ];
+            lines.push(Line::default());
+            lines.push(Line::styled(
+                "The body is read only when the document is opened.",
+                Style::default().fg(Color::DarkGray),
+            ));
+            Text::from(lines)
+        },
+    );
+    frame.render_widget(
+        Paragraph::new(text)
+            .block(Block::default().title(" Document ").borders(Borders::ALL))
+            .scroll((scroll, 0))
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+/// Renders the open document and keeps the cursor line in view.
+fn render_reader(frame: &mut Frame<'_>, area: Rect, reader: &mut Reader) {
+    let title = reader
+        .title
+        .clone()
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| "Untitled document".to_owned());
+    let block = Block::default()
+        .title(format!(
+            " {}{} ",
+            terminal_snippet(&title, usize::from(area.width.saturating_sub(8))),
+            if reader.deleted { " [deleted]" } else { "" }
+        ))
+        .borders(Borders::ALL);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+    let parts = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(1), Constraint::Length(1)])
+        .split(inner);
+    let text_area = parts[0];
+
+    // A prose column that stops widening, with the gutter that marks the
+    // cursor line taken out of it.
+    let column = text_area.width.min(READING_COLUMN);
+    let margin = (text_area.width - column) / 2;
+    let width = column.saturating_sub(GUTTER_WIDTH).max(1);
+    let height = usize::from(text_area.height).max(1);
+
+    let cursor = reader.cursor;
+    let (first, last) = {
+        let rows = reader.rows(width);
+        let first = rows
+            .iter()
+            .position(|row| row.source == cursor)
+            .unwrap_or(0);
+        let last = rows
+            .iter()
+            .rposition(|row| row.source == cursor)
+            .unwrap_or(first);
+        (first, last)
+    };
+    let total = reader.row_count();
+    if first < reader.scroll {
+        reader.scroll = first;
+    } else if last >= reader.scroll + height {
+        reader.scroll = last + 1 - height;
+    }
+    reader.scroll = reader.scroll.min(total.saturating_sub(height));
+    let scroll = reader.scroll;
+    let lines = reader
+        .rows(width)
+        .iter()
+        .skip(scroll)
+        .take(height)
+        .map(|row| {
+            let mut spans = vec![if row.source == cursor {
+                Span::styled("▌ ", Style::default().fg(Color::Cyan))
+            } else {
+                Span::raw("  ")
+            }];
+            spans.extend(row.line.spans.iter().cloned());
+            Line::from(spans)
+        })
+        .collect::<Vec<_>>();
+    frame.render_widget(
+        Paragraph::new(lines),
+        Rect {
+            x: text_area.x + margin,
+            width: column,
+            ..text_area
+        },
+    );
+
+    let mut status = vec![format!("line {} of {}", cursor + 1, reader.line_count())];
+    status.push(format_bytes(reader.body().len()));
+    if !reader.tags.is_empty() {
+        status.push(reader.tags.join(", "));
+    }
+    status.push("Space toggles a task | e edits | Ctrl+G editor | Esc closes".to_owned());
+    frame.render_widget(
+        Paragraph::new(Line::styled(
+            terminal_snippet(&status.join(" | "), usize::from(parts[1].width)),
+            Style::default().fg(Color::DarkGray),
+        )),
+        parts[1],
+    );
 }
 
 fn render_list(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
@@ -1779,18 +2854,16 @@ fn render_detail(frame: &mut Frame<'_>, area: Rect, item: Option<&StoredItem>, s
 
 fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let compact = area.width < 78;
+    let pending = app.status.pending_updates + app.aggregates_pending;
     let mut status = if compact {
         format!(
-            "{} active | {} deleted | {} pending",
-            app.status.active_items, app.status.deleted_items, app.status.pending_updates
+            "{} active | {} deleted | {pending} pending",
+            app.status.active_items, app.status.deleted_items
         )
     } else {
         format!(
-            "{} active | {} deleted | {} pending | sync: {}",
-            app.status.active_items,
-            app.status.deleted_items,
-            app.status.pending_updates,
-            app.status.sync_state
+            "{} active | {} deleted | {pending} pending | sync: {}",
+            app.status.active_items, app.status.deleted_items, app.status.sync_state
         )
     };
     if let Some(operation) = &app.operation {
@@ -1802,7 +2875,13 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
             let (value, _) =
                 input.display_value(true, usize::from(area.width.saturating_sub(28)));
             Line::from(vec![
-                Span::styled("Search: ", Style::default().fg(Color::Cyan)),
+                Span::styled(
+                    match app.workspace {
+                        Workspace::Library => "Search: ",
+                        Workspace::Documents => "Filter: ",
+                    },
+                    Style::default().fg(Color::Cyan),
+                ),
                 Span::raw(terminal_safe(&value)),
                 Span::styled(
                     app.notice.as_ref().map_or(
@@ -1829,10 +2908,23 @@ fn render_footer(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 )
             } else {
                 Line::styled(
-                    if compact {
-                        "a add | E enrich | s sync | ? help | q quit"
-                    } else {
-                        "a add | e edit | E enrich | Ctrl+E replace | s sync | ? help | q quit"
+                    match (app.workspace, &app.mode, compact) {
+                        (_, Mode::Reader, true) => "Space task | e edit | Esc close",
+                        (_, Mode::Reader, false) => {
+                            "Space task | e edit | Ctrl+G editor | x delete | Esc close | ? help"
+                        }
+                        (Workspace::Library, _, true) => {
+                            "a add | E enrich | s sync | Tab documents | ? help"
+                        }
+                        (Workspace::Library, _, false) => {
+                            "a add | e edit | E enrich | Ctrl+E replace | s sync | Tab documents | ? help | q quit"
+                        }
+                        (Workspace::Documents, _, true) => {
+                            "a new | Enter read | s sync | Tab saves | ? help"
+                        }
+                        (Workspace::Documents, _, false) => {
+                            "a new | Enter read | e edit | x delete | s sync | Tab saves | ? help | q quit"
+                        }
                     },
                     Style::default().fg(Color::DarkGray),
                 )
@@ -1884,49 +2976,7 @@ fn render_form(frame: &mut Frame<'_>, area: Rect, form: &ItemForm, notice: Optio
         .constraints(constraints)
         .split(inner);
 
-    for (index, field) in form.fields.iter().enumerate() {
-        let active = index == form.active;
-        let border_style =
-            Style::default().fg(if active { Color::Cyan } else { Color::DarkGray });
-        let input_area = rows[index];
-        let input_width = input_area.width.saturating_sub(2).max(1);
-        let input_height = input_area.height.saturating_sub(2).max(1);
-        let rendered = field.input.rendered_value();
-        let rendered = if field.multiline {
-            terminal_safe_multiline(&rendered)
-        } else {
-            terminal_safe(&rendered)
-        };
-        frame.render_widget(
-            Paragraph::new(rendered)
-                .block(
-                    Block::default()
-                        .title(format!(" {} ", field.label))
-                        .borders(Borders::ALL)
-                        .border_style(border_style),
-                )
-                .scroll(if active {
-                    field.input.scroll_offset(input_width, input_height)
-                } else {
-                    (0, 0)
-                }),
-            rows[index],
-        );
-        if active {
-            let scroll = field.input.scroll_offset(input_width, input_height);
-            let cursor = field.input.cursor_position();
-            frame.set_cursor_position((
-                input_area
-                    .x
-                    .saturating_add(1)
-                    .saturating_add(cursor.1.saturating_sub(scroll.1)),
-                input_area
-                    .y
-                    .saturating_add(1)
-                    .saturating_add(cursor.0.saturating_sub(scroll.0)),
-            ));
-        }
-    }
+    render_form_fields(frame, &rows, &form.fields, form.active);
     let favorite_style = if form.active == form.fields.len() {
         Style::default()
             .fg(Color::Cyan)
@@ -1995,6 +3045,157 @@ fn render_form(frame: &mut Frame<'_>, area: Rect, form: &ItemForm, notice: Optio
         Paragraph::new(instructions).style(Style::default().fg(Color::DarkGray)),
         rows[instructions_index],
     );
+}
+
+/// Draws one bordered input per field and parks the terminal cursor in the
+/// focused one.
+fn render_form_fields(
+    frame: &mut Frame<'_>,
+    rows: &[Rect],
+    fields: &[FormField],
+    active_field: usize,
+) {
+    for (index, field) in fields.iter().enumerate() {
+        let active = index == active_field;
+        let input_area = rows[index];
+        let input_width = input_area.width.saturating_sub(2).max(1);
+        let input_height = input_area.height.saturating_sub(2).max(1);
+        let rendered = field.input.rendered_value();
+        let rendered = if field.multiline {
+            terminal_safe_multiline(&rendered)
+        } else {
+            terminal_safe(&rendered)
+        };
+        frame.render_widget(
+            Paragraph::new(rendered)
+                .block(
+                    Block::default()
+                        .title(format!(" {} ", field.label))
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(if active {
+                            Color::Cyan
+                        } else {
+                            Color::DarkGray
+                        })),
+                )
+                .scroll(if active {
+                    field.input.scroll_offset(input_width, input_height)
+                } else {
+                    (0, 0)
+                }),
+            input_area,
+        );
+        if active {
+            let scroll = field.input.scroll_offset(input_width, input_height);
+            let cursor = field.input.cursor_position();
+            frame.set_cursor_position((
+                input_area
+                    .x
+                    .saturating_add(1)
+                    .saturating_add(cursor.1.saturating_sub(scroll.1)),
+                input_area
+                    .y
+                    .saturating_add(1)
+                    .saturating_add(cursor.0.saturating_sub(scroll.0)),
+            ));
+        }
+    }
+}
+
+/// The document form: a title, a body that takes every spare row, and tags.
+fn render_document_form(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    form: &DocumentForm,
+    notice: Option<&Notice>,
+) {
+    if area.width < 50 || area.height < 18 {
+        render_compact_document_form(frame, area, form, notice);
+        return;
+    }
+    let popup = centered_rect(area, 96, 40);
+    frame.render_widget(Clear, popup);
+    let block = Block::default()
+        .title(format!(" {} ", form.title()))
+        .borders(Borders::ALL)
+        .style(Style::default().bg(Color::Black));
+    let inner = block.inner(popup);
+    frame.render_widget(block, popup);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Fill(1),
+            Constraint::Length(3),
+            Constraint::Length(2),
+        ])
+        .split(inner);
+    render_form_fields(frame, &rows, &form.fields, form.active);
+    let instructions = notice.map_or_else(
+        || {
+            vec![
+                Line::from(format!(
+                    "{} of {} | Tab/Shift+Tab fields | Up/Down body lines | Ctrl+N newline",
+                    format_bytes(form.body_bytes()),
+                    format_bytes(MAX_ZEN_BODY_BYTES)
+                )),
+                Line::from(
+                    "Mention a save as [label](research:item/<uuid>) | Ctrl+G editor | Ctrl+S save | Esc cancel",
+                ),
+            ]
+        },
+        |notice| {
+            vec![Line::styled(
+                terminal_safe(&notice.text),
+                Style::default().fg(if notice.error {
+                    Color::Red
+                } else {
+                    Color::Green
+                }),
+            )]
+        },
+    );
+    frame.render_widget(
+        Paragraph::new(instructions).style(Style::default().fg(Color::DarkGray)),
+        rows[3],
+    );
+}
+
+fn render_compact_document_form(
+    frame: &mut Frame<'_>,
+    area: Rect,
+    form: &DocumentForm,
+    notice: Option<&Notice>,
+) {
+    let popup = centered_rect(area, 48, 10);
+    frame.render_widget(Clear, popup);
+    let field = &form.fields[form.active];
+    let (value, cursor) = field
+        .input
+        .current_line_value(usize::from(popup.width.saturating_sub(4)));
+    let hint = notice.map_or("Ctrl+G editor | Tab fields | Ctrl+S save", |notice| {
+        notice.text.as_str()
+    });
+    frame.render_widget(
+        Paragraph::new(format!(
+            "{}\n\n{}\n\n{}\n{}",
+            field.label,
+            terminal_safe(&value),
+            format_bytes(form.body_bytes()),
+            terminal_safe(hint)
+        ))
+        .block(
+            Block::default()
+                .title(format!(" {} ", form.title()))
+                .borders(Borders::ALL),
+        )
+        .wrap(Wrap { trim: false }),
+        popup,
+    );
+    frame.set_cursor_position((
+        popup.x.saturating_add(1).saturating_add(cursor),
+        popup.y.saturating_add(3),
+    ));
 }
 
 fn render_compact_form(
@@ -2176,13 +3377,10 @@ fn render_compact_sync_setup(
     ));
 }
 
-fn render_confirmation(frame: &mut Frame<'_>, area: Rect, item: Option<&StoredItem>) {
+fn render_confirmation(frame: &mut Frame<'_>, area: Rect, kind: &str, name: Option<&str>) {
     let popup = centered_rect(area, 58, 7);
     frame.render_widget(Clear, popup);
-    let title = item
-        .and_then(|item| item.title.as_deref())
-        .filter(|title| !title.is_empty())
-        .unwrap_or("this save");
+    let title = name.unwrap_or(kind);
     frame.render_widget(
         Paragraph::new(format!(
             "Delete {}?\n\nThis is recoverable. Press y/Enter to confirm or n/Esc to cancel.",
@@ -2225,20 +3423,32 @@ fn render_force_enrichment_confirmation(
     );
 }
 
-fn render_help(frame: &mut Frame<'_>, area: Rect) {
+fn render_help(frame: &mut Frame<'_>, area: Rect, workspace: Workspace) {
     if area.width < 78 || area.height < 25 {
-        let popup = centered_rect(area, 48, 10);
+        let popup = centered_rect(area, 48, 12);
         frame.render_widget(Clear, popup);
-        let help = [
-            "j/k or arrows move | g/G first/last",
-            "a/e add/edit | / search | Ctrl+G editor",
-            "E enrich | Ctrl+E replace excerpt",
-            "s connect/sync",
-            "Space favorite | x delete | r restore",
-            "f favorites | d views | R refresh",
-            "Esc cancel/clear | ? close help",
-            "q in library or Ctrl+C exits",
-        ];
+        let help: &[&str] = match workspace {
+            Workspace::Library => &[
+                "j/k or arrows move | g/G first/last",
+                "a/e add/edit | / search | Ctrl+G editor",
+                "E enrich | Ctrl+E replace excerpt",
+                "Space favorite | x delete | r restore",
+                "f favorites | d views | R refresh",
+                "Tab documents | s connect/sync",
+                "Esc cancel/clear | ? close help",
+                "q in a list or Ctrl+C exits",
+            ],
+            Workspace::Documents => &[
+                "j/k or arrows move | g/G first/last",
+                "Enter read | a new | e edit | / filter",
+                "x delete | r restore | d views",
+                "In a document: Space toggles a task",
+                "Ctrl+G edits the body in your editor",
+                "Tab saves | s connect/sync | R refresh",
+                "Esc closes | ? close help",
+                "q in a list or Ctrl+C exits",
+            ],
+        };
         frame.render_widget(
             Paragraph::new(help.join("\n"))
                 .block(
@@ -2251,31 +3461,51 @@ fn render_help(frame: &mut Frame<'_>, area: Rect) {
         );
         return;
     }
-    let popup = centered_rect(area, 76, 25);
+    let popup = centered_rect(area, 76, 27);
     frame.render_widget(Clear, popup);
-    let help = [
+    let mut help = vec![
         "Navigation",
         "  j/k or arrows   move selection     g/G or Home/End   first/last",
         "  PgUp/PgDn       move ten            R                 refresh",
-        "  Ctrl+U/Ctrl+D   scroll details",
+        "  Ctrl+U/Ctrl+D   scroll              Tab               other workspace",
         "",
-        "Library",
-        "  a add           e/Enter edit        Space toggle favorite",
-        "  x delete        r restore           / search",
-        "  E enrich        Ctrl+E replace       s connect/sync",
-        "  f favorites     d lifecycle view    Esc clear search",
+    ];
+    match workspace {
+        Workspace::Library => help.extend([
+            "Saves",
+            "  a add           e/Enter edit        Space toggle favorite",
+            "  x delete        r restore           / search",
+            "  E enrich        Ctrl+E replace       s connect/sync",
+            "  f favorites     d lifecycle view    Esc clear search",
+            "",
+            "Enrichment uses the configured local provider. Sync uses a PAT from",
+            "RESEARCHPOCKET_GITHUB_TOKEN or GH_TOKEN and never persists it.",
+        ]),
+        Workspace::Documents => help.extend([
+            "Documents",
+            "  a new           e edit              Enter/o read",
+            "  x delete        r restore           / filter title and tags",
+            "  d lifecycle view                    s connect/sync",
+            "",
+            "Reading a document",
+            "  j/k move the cursor line            Space or t toggle its task",
+            "  e edit in a form                    Ctrl+G edit the body in $EDITOR",
+            "  R reload            x delete        Esc or q close",
+            "",
+            "Bodies are read only when a document is opened. A mention written as",
+            "[label](research:item/<uuid>) resolves against this library as you read.",
+        ]),
+    }
+    help.extend([
         "",
         "Forms",
         "  Tab/Shift+Tab fields                Space toggles options",
-        "  Up/Down excerpt/note lines          Ctrl+N inserts newline",
+        "  Up/Down multiline fields            Ctrl+N inserts newline",
         "  Ctrl+W deletes previous word        Ctrl+G opens terminal editor",
         "  Ctrl+S commits mutation             Esc cancels",
         "",
-        "Enrichment uses the configured local provider. Sync uses a PAT from",
-        "RESEARCHPOCKET_GITHUB_TOKEN or GH_TOKEN and never persists it.",
-        "",
         "Press ?, Enter, or Esc to close help.",
-    ];
+    ]);
     frame.render_widget(
         Paragraph::new(help.join("\n"))
             .block(
@@ -2487,6 +3717,171 @@ mod tests {
         app.mode = Mode::Browse;
         assert!(app.accept_key_press(key));
         assert!(!app.accept_key_press(key));
+    }
+
+    /// The workspace is exercised the way it is used: index, open, edit.
+    #[tokio::test]
+    async fn the_documents_workspace_reads_edits_and_toggles_one_document() {
+        let directory = tempfile::tempdir().expect("temporary library");
+        let store = V2Store::init(directory.path())
+            .await
+            .expect("initialize library");
+        let item = store
+            .create_item(CreateItemRequest {
+                url: "https://example.com/paper".to_owned(),
+                title: Some("The paper".to_owned()),
+                excerpt: None,
+                favorite: false,
+                language: None,
+                saved_at: None,
+                note: String::new(),
+                tags: Vec::new(),
+            })
+            .await
+            .expect("save an item to mention");
+        let document = store
+            .create_zen_document(CreateZenDocumentRequest {
+                title: Some("Today".to_owned()),
+                body: format!("- [ ] Read [it](research:item/{})\n", item.id),
+                tags: vec!["reading".to_owned()],
+            })
+            .await
+            .expect("create document");
+
+        let mut app = App::load(&store).await.expect("load TUI state");
+        assert_eq!(app.documents.len(), 1, "the index loads beside the library");
+        assert_eq!(app.workspace, Workspace::Library);
+
+        app.handle_browse_key(
+            &store,
+            directory.path(),
+            KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE),
+        )
+        .await;
+        assert_eq!(app.workspace, Workspace::Documents);
+
+        app.open_selected_document(&store).await;
+        assert!(matches!(app.mode, Mode::Reader));
+        let reader = app.reader.as_ref().expect("open document");
+        assert_eq!(reader.document_id, document.document_id);
+        assert!(reader.body().starts_with("- [ ] Read"));
+
+        app.toggle_open_todo(&store).await;
+        let stored = store
+            .zen_document(&document.document_id)
+            .await
+            .expect("read back");
+        assert!(
+            stored.body.starts_with("- [x] Read"),
+            "the toggle reached the store: {}",
+            stored.body
+        );
+        assert_eq!(
+            (app.documents[0].todo_done, app.documents[0].todo_total),
+            (1, 1),
+            "the index follows the mutation"
+        );
+
+        // A buffer opened before a concurrent edit must not undo it.
+        let form = DocumentForm::from_reader(app.reader.as_ref().expect("open document"));
+        store
+            .edit_zen_document(EditZenDocumentRequest {
+                document_id: document.document_id.clone(),
+                body: Some("elsewhere\n".to_owned()),
+                ..EditZenDocumentRequest::default()
+            })
+            .await
+            .expect("concurrent edit");
+        app.mode = Mode::DocumentForm(Box::new(form));
+        if let Mode::DocumentForm(form) = &mut app.mode {
+            form.active = 1;
+            form.fields[1].input.insert_text("stale");
+        }
+        app.submit_document_form(&store).await;
+        assert!(
+            app.notice.as_ref().is_some_and(|notice| notice.error),
+            "a stale body replacement is refused"
+        );
+        assert_eq!(
+            store
+                .zen_document(&document.document_id)
+                .await
+                .expect("read back")
+                .body,
+            "elsewhere\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn deleted_documents_are_only_listed_in_a_lifecycle_view_that_asks() {
+        let directory = tempfile::tempdir().expect("temporary library");
+        let store = V2Store::init(directory.path())
+            .await
+            .expect("initialize library");
+        let document = store
+            .create_zen_document(CreateZenDocumentRequest {
+                title: Some("Draft".to_owned()),
+                ..CreateZenDocumentRequest::default()
+            })
+            .await
+            .expect("create document");
+
+        let mut app = App::load(&store).await.expect("load TUI state");
+        app.workspace = Workspace::Documents;
+        app.mode = Mode::ConfirmDelete;
+        app.delete_selected_document(&store).await;
+        assert!(app.documents.is_empty(), "the active view hides it");
+
+        app.document_lifecycle = LifecycleFilter::Deleted;
+        app.refresh_documents(&store, None)
+            .await
+            .expect("refresh index");
+        assert_eq!(app.documents.len(), 1);
+
+        app.restore_selected_document(&store).await;
+        app.document_lifecycle = LifecycleFilter::Active;
+        app.refresh_documents(&store, Some(&document.document_id))
+            .await
+            .expect("refresh index");
+        assert_eq!(app.documents.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn the_document_filter_matches_metadata_without_reading_a_body() {
+        let directory = tempfile::tempdir().expect("temporary library");
+        let store = V2Store::init(directory.path())
+            .await
+            .expect("initialize library");
+        for (title, tag, body) in [
+            ("Reading list", "reading", "needle in the body"),
+            ("Grocery run", "errands", "nothing"),
+        ] {
+            store
+                .create_zen_document(CreateZenDocumentRequest {
+                    title: Some(title.to_owned()),
+                    body: body.to_owned(),
+                    tags: vec![tag.to_owned()],
+                })
+                .await
+                .expect("create document");
+        }
+
+        let mut app = App::load(&store).await.expect("load TUI state");
+        app.workspace = Workspace::Documents;
+        app.document_query = "GROCERY".to_owned();
+        app.refresh_documents(&store, None).await.expect("filter");
+        assert_eq!(app.documents.len(), 1);
+
+        app.document_query = "errands".to_owned();
+        app.refresh_documents(&store, None).await.expect("filter");
+        assert_eq!(app.documents.len(), 1, "tags match too");
+
+        app.document_query = "needle".to_owned();
+        app.refresh_documents(&store, None).await.expect("filter");
+        assert!(
+            app.documents.is_empty(),
+            "filtering never becomes a reason to load bodies"
+        );
     }
 
     #[test]

@@ -195,6 +195,7 @@ async fn handle_zen(
                         (None, false) => None,
                     },
                     body,
+                    expected_body: None,
                     add_tags: edit.add_tag.clone(),
                     remove_tags: edit.remove_tag.clone(),
                 })

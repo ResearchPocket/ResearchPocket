@@ -449,10 +449,16 @@ research tui
 The TUI requires an interactive terminal and uses the resolved V2 data directory.
 It does not support JSON/NDJSON output. Explicit enrichment and synchronization
 actions may make network requests; all other library actions remain local. Its
-footer reports active/deleted counts, the pending outbox count, and sanitized
-synchronization state.
+footer reports active/deleted counts, the number of updates waiting to upload
+(item and document work together), and sanitized synchronization state.
 
-Main view shortcuts:
+It has two workspaces, and `Tab` moves between them: **saves**, which manages
+captured URLs, and **documents**, which manages the zen documents of
+[ADR 0011](./ADR_0011_ZEN_DOCUMENTS.md). The header names the current workspace.
+Navigation, search, lifecycle views, help, and synchronization work the same way
+in both.
+
+Saves shortcuts:
 
 | Key | Action |
 | --- | --- |
@@ -472,7 +478,61 @@ Main view shortcuts:
 | `d` | Cycle active, all, and deleted lifecycle views |
 | `R` | Refresh local state |
 | `?` | Open keyboard help |
+| `Tab` | Switch to the documents workspace |
 | `q` in the main view or `Ctrl+C` anywhere | Exit and restore the terminal |
+
+Documents shortcuts:
+
+| Key | Action |
+| --- | --- |
+| `j`/`k`, arrows, `g`/`G`, PgUp/PgDn | Move selection |
+| Enter or `o` | Open the selected document for reading |
+| `a` | Write a new document |
+| `e` | Edit the selected document's title, body, and tags |
+| `x` | Confirm recoverable deletion |
+| `r` | Restore a deleted document |
+| `/` | Filter documents by title and exact tag text |
+| `d` | Cycle active, all, and deleted lifecycle views |
+| `s` | Connect a private GitHub repository, or run one configured sync cycle |
+| `R` | Refresh local state |
+| `Tab` | Switch back to saves |
+
+The index shows title, size, todo counts, tags, and lifecycle. It is built from
+the projection alone: opening the workspace, filtering it, and moving through it
+never read a document body. The filter is a local metadata match rather than an
+FTS query, so it does not search body text.
+
+Reading a document is the only action that loads a body:
+
+| Key | Action |
+| --- | --- |
+| `j`/`k`, arrows, PgUp/PgDn, `Ctrl+U`/`Ctrl+D`, `g`/`G` | Move the cursor line |
+| Space or `t` | Toggle the GFM task checkbox on the cursor line |
+| `e` or Enter | Edit the open document in a form |
+| `Ctrl+G` | Edit the whole body in `VISUAL`/`EDITOR` and save what comes back |
+| `R` | Reload the document from the local library |
+| `x`/`r` | Delete or restore the open document |
+| Esc or `q` | Close the document |
+
+The reader renders Markdown for a terminal — headings, lists, GFM task lists,
+block quotes, fenced code, links, and code spans — and stays forgiving of
+imperfect Markdown: anything it does not recognize is shown as it was authored.
+A mention written as `[label](research:item/<uuid>)` resolves against the local
+projection while the document is open: an active item renders its current title
+and host, a deleted item renders a non-navigating tombstone, and an unknown UUID
+renders as an explicit unresolved reference. Nothing about that resolution is
+stored, indexed, or synchronized; it is discarded when the document closes.
+
+Toggling a checkbox rewrites one character, so the store records a
+character-level splice. Two devices can tick different boxes in the same
+document and keep both. Document forms accept the same editing keys as capture
+forms, show the body against the 256 KiB bound, and refuse a body larger than it.
+
+A whole-body write — from a form or from `Ctrl+G` — carries the text it was
+opened with. If another local or synchronized writer changed the body first, the
+TUI refuses the stale replacement rather than undoing that edit, and a rejected
+`Ctrl+G` buffer is written to a temporary Markdown file whose path is reported,
+so authored text is never lost to the refusal.
 
 Capture and edit forms use Tab/Shift+Tab to move through URL, title, excerpt,
 private note, exact tags, and favorite state. Capture adds an **Enrich after
@@ -690,6 +750,9 @@ $ printf -- '- [x] Ship it\n- [ ] Review #132\n' | research zen add --title Toda
 
 `--body` remains for one-liners and accepts leading hyphens, since a Markdown
 body usually starts with a list marker.
+
+`research tui` exposes the same operations in its documents workspace, and calls
+the same application services.
 
 `research zen list` reads projected metadata only — title, size, todo counts,
 tags, lifecycle — and never loads a body. `research zen show` is the only
